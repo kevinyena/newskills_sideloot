@@ -60,7 +60,7 @@ export class CreateBusinessIdeaSkill
 
   // ----- UI metadata (ignored by Mintery) -----
   public readonly displayName = 'Create Business Idea';
-  public readonly category = 'creative';
+  public readonly category = 'video_ugc';
   public readonly order = 1;
   public readonly type = 'llm' as const;
   public readonly model = CLAUDE_MODEL;

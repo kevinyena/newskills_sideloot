@@ -64,7 +64,7 @@ export class AdaptToVeoPromptSkill
 
   // ----- UI metadata -----
   public readonly displayName = 'Adapt Script to Veo Prompt';
-  public readonly category = 'creative';
+  public readonly category = 'video_ugc';
   public readonly order = 3;
   public readonly type = 'llm' as const;
   public readonly model = CLAUDE_MODEL;

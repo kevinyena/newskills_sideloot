@@ -40,7 +40,7 @@ export class GenerateVeoVideoSkill
 
   // ----- UI metadata -----
   public readonly displayName = 'Generate Video (Veo 3.1)';
-  public readonly category = 'media';
+  public readonly category = 'video_ugc';
   public readonly order = 4;
   public readonly type = 'api' as const;
   public readonly endpoint = VEO_MODEL;

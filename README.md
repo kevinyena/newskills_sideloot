@@ -13,14 +13,15 @@ src/skills/
 │   ├── anthropic.ts                            ← wrapper Claude (Opus 4.7, adaptive thinking, structured outputs)
 │   ├── veo.ts                                  ← wrapper Veo 3.1 (start/poll/proxy + blocking helper)
 │   └── render.ts                               ← interpolation {{var}} dans les prompts
-├── creative/
-│   ├── CreateBusinessIdeaSkill.ts              ← skill 1
-│   ├── GenerateVideoScriptSkill.ts             ← skill 2
-│   └── AdaptToVeoPromptSkill.ts                ← skill 3
-├── media/
-│   └── GenerateVeoVideoSkill.ts                ← skill 4
-└── index.ts                                    ← registry + sérialisation pour l'UI
+├── video_ugc/                                  ← 1 catégorie = 1 section dans l'UI
+│   ├── CreateBusinessIdeaSkill.ts              ← skill 1 (llm)
+│   ├── GenerateVideoScriptSkill.ts             ← skill 2 (llm)
+│   ├── AdaptToVeoPromptSkill.ts                ← skill 3 (llm)
+│   └── GenerateVeoVideoSkill.ts                ← skill 4 (api)
+└── index.ts                                    ← registry + sectioning dynamique par category
 ```
+
+**Une catégorie = un dossier = une section dans l'UI.** Pour ajouter une nouvelle catégorie (ex: `email_outreach/`, `seo/`), il suffit de créer le dossier, y poser les classes, et d'ajouter une ligne dans `CATEGORY_DISPLAY` de `index.ts` pour son nom + icône + ordre dans la sidebar.
 
 ## Pattern de skill (compat Mintery)
 
@@ -59,7 +60,7 @@ export class CreateBusinessIdeaSkill implements BaseSkill<Input, Business> {
   description = '…';
   schema = InputSchema;
 
-  category = 'creative';
+  category = 'video_ugc';
   order = 1;
   type = 'llm' as const;
   model = 'claude-opus-4-7';
@@ -101,8 +102,9 @@ Les endpoints Veo split (`/start` + `/status` + `/proxy`) servent l'UI interacti
 1. Crée `src/skills/<category>/MaSkill.ts` (classe implémentant `BaseSkill`)
 2. Définis `InputSchema` (Zod) + `OutputSchema` (Zod)
 3. Implémente `execute(input, ctx?)`
-4. Ajoute l'instance dans `src/skills/index.ts` dans `ALL_SKILLS`
-5. Restart le serveur — la skill apparaît automatiquement dans l'UI
+4. Ajoute l'instance dans `ALL_SKILLS` de `src/skills/index.ts`
+5. Si c'est une nouvelle catégorie, ajoute une ligne dans `CATEGORY_DISPLAY`
+6. Restart — la skill apparaît automatiquement dans l'UI
 
 Le serveur ne change jamais — c'est un thin host par-dessus le registry.
 
@@ -110,8 +112,7 @@ Le serveur ne change jamais — c'est un thin host par-dessus le registry.
 
 ```bash
 # Dans Mintery (branche pre-prd, architecture, etc.)
-cp -r path/to/newskills_sideloot/src/skills/creative  apps/core_app/worker/src/skills/marketing/
-cp -r path/to/newskills_sideloot/src/skills/media     apps/core_app/worker/src/skills/marketing/
+cp -r path/to/newskills_sideloot/src/skills/video_ugc  apps/core_app/worker/src/skills/video_ugc/
 cp    path/to/newskills_sideloot/src/skills/runtime/anthropic.ts  apps/core_app/worker/src/lib/
 cp    path/to/newskills_sideloot/src/skills/runtime/veo.ts        apps/core_app/worker/src/lib/
 ```

@@ -12,10 +12,10 @@
 
 import { z } from 'zod';
 import type { BaseSkill } from './BaseSkill.js';
-import { CreateBusinessIdeaSkill } from './creative/CreateBusinessIdeaSkill.js';
-import { GenerateVideoScriptSkill } from './creative/GenerateVideoScriptSkill.js';
-import { AdaptToVeoPromptSkill } from './creative/AdaptToVeoPromptSkill.js';
-import { GenerateVeoVideoSkill } from './media/GenerateVeoVideoSkill.js';
+import { CreateBusinessIdeaSkill } from './video_ugc/CreateBusinessIdeaSkill.js';
+import { GenerateVideoScriptSkill } from './video_ugc/GenerateVideoScriptSkill.js';
+import { AdaptToVeoPromptSkill } from './video_ugc/AdaptToVeoPromptSkill.js';
+import { GenerateVeoVideoSkill } from './video_ugc/GenerateVeoVideoSkill.js';
 
 export { type BaseSkill, type SkillContext, type SkillType } from './BaseSkill.js';
 export { renderTemplate } from './runtime/render.js';
@@ -90,26 +90,51 @@ export function serializeSkill(skill: BaseSkill): SerializedSkill {
 }
 
 /**
- * Build the UI section tree.
- *
- * For now, all skills live under a single "AI UGC" workflow section,
- * sorted by `order`. The `category` field on each skill (`creative`, `media`)
- * is preserved as metadata for Mintery-side organization but is not used to
- * split sections in this UI.
+ * Display config per `category`. When a new category appears in `ALL_SKILLS`,
+ * add an entry here to control its display name + icon + position in the sidebar.
+ * Unknown categories fall back to a generic auto-generated display.
+ */
+const CATEGORY_DISPLAY: Record<string, { name: string; icon: string; order: number }> = {
+  video_ugc: { name: 'Video UGC', icon: '🎬', order: 1 },
+};
+
+function defaultDisplay(category: string, fallbackOrder: number) {
+  // Convert snake_case / kebab-case → "Title Case" as a sensible default.
+  const name = category
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return { name, icon: '✨', order: 99 + fallbackOrder };
+}
+
+/**
+ * Build the UI section tree by grouping skills on their `category` field.
+ * Skills are sorted by `order` within each section; sections are sorted by
+ * the order defined in `CATEGORY_DISPLAY`.
  */
 export function buildSections(
   skills: ReadonlyArray<BaseSkill> = ALL_SKILLS,
 ): SerializedSection[] {
-  const serialized = skills
-    .map(serializeSkill)
-    .sort((a, b) => a.order - b.order);
-  return [
-    {
-      id: 'ai-ugc',
-      name: 'AI UGC',
-      icon: '🎬',
-      order: 1,
-      skills: serialized,
-    },
-  ];
+  const byCategory = new Map<string, SerializedSkill[]>();
+  for (const skill of skills) {
+    const s = serializeSkill(skill);
+    const arr = byCategory.get(s.category) ?? [];
+    arr.push(s);
+    byCategory.set(s.category, arr);
+  }
+
+  let fallbackOrder = 0;
+  const sections: SerializedSection[] = [];
+  for (const [category, list] of byCategory) {
+    const display = CATEGORY_DISPLAY[category] ?? defaultDisplay(category, fallbackOrder++);
+    list.sort((a, b) => a.order - b.order);
+    sections.push({
+      id: category,
+      name: display.name,
+      icon: display.icon,
+      order: display.order,
+      skills: list,
+    });
+  }
+  sections.sort((a, b) => a.order - b.order);
+  return sections;
 }

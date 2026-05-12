@@ -65,7 +65,7 @@ export class GenerateVideoScriptSkill
 
   // ----- UI metadata -----
   public readonly displayName = 'Generate Video Script';
-  public readonly category = 'creative';
+  public readonly category = 'video_ugc';
   public readonly order = 2;
   public readonly type = 'llm' as const;
   public readonly model = CLAUDE_MODEL;

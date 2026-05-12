@@ -62,7 +62,7 @@ const BUSINESS_TYPES = [
 
 // ---------- State ----------
 let SECTIONS: SerializedSection[] = [];
-let ACTIVE_SECTION = 'ai-ugc';
+let ACTIVE_SECTION = '';
 let currentBusiness: Business | null = null;
 let currentVideo: VideoScript | null = null;
 let currentVeoPrompt: string | null = null;
@@ -103,6 +103,12 @@ async function runSkill<TInput, TOutput>(name: string, input: TInput): Promise<T
 // ---------- Init ----------
 async function init() {
   SECTIONS = await apiGet<SerializedSection[]>('/api/skills');
+  // Default to the first section (sections are pre-sorted by `order` server-side).
+  if (SECTIONS.length === 0) {
+    showError('Aucune skill enregistrée.');
+    return;
+  }
+  ACTIVE_SECTION = SECTIONS[0]!.id;
   renderSidebar();
   selectSection(ACTIVE_SECTION);
 }
