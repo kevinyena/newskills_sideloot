@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { BaseSkill, SkillContext } from '../BaseSkill.js';
 import { callClaude, CLAUDE_MODEL } from '../runtime/anthropic.js';
 import { renderTemplate } from '../runtime/render.js';
+import { newSeed } from '../runtime/seed.js';
 import { BusinessSchema, type Business } from './CreateBusinessIdeaSkill.js';
 
 // ----- Schemas -----
@@ -41,6 +42,11 @@ Tu es le meilleur CMO du monde, spécialiste de la viralité UGC sur TikTok et R
 - Format vertical 9:16
 - La réplique parlée doit faire **6 à 15 mots max** (sinon ça ne rentre pas dans 8s)
 
+# VARIANCE OBLIGATOIRE
+Random seed : {{seed}}
+
+Pour un même business, **propose un hook ET une réplique RADICALEMENT DIFFÉRENTS** à chaque seed. Change le pattern interrupt (problème → solution / POV / claim contre-intuitif / démo / réaction…), change la mécanique psychologique exploitée.
+
 # INPUTS
 - Business : {{business}}
 - Langue de la réplique : {{languageName}}
@@ -75,7 +81,11 @@ export class GenerateVideoScriptSkill
     input: GenerateVideoScriptInput,
     _ctx?: SkillContext,
   ): Promise<VideoScript> {
-    const userMessage = renderTemplate(this.prompt, input as unknown as Record<string, unknown>);
+    const seed = newSeed();
+    const userMessage = renderTemplate(
+      this.prompt,
+      { ...input, seed } as unknown as Record<string, unknown>,
+    );
     return callClaude({
       userMessage,
       schema: VideoScriptSchema,

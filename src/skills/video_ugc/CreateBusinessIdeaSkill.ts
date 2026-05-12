@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { BaseSkill, SkillContext } from '../BaseSkill.js';
 import { callClaude, CLAUDE_MODEL } from '../runtime/anthropic.js';
 import { renderTemplate } from '../runtime/render.js';
+import { newSeed } from '../runtime/seed.js';
 
 // ----- Schemas -----
 export const CreateBusinessIdeaInputSchema = z.object({
@@ -36,6 +37,11 @@ Génère **1 idée de business viable et différenciante** dans la catégorie de
 - La cible doit être précise (pas "tout le monde")
 - Évite les idées clichées (yet another AI productivity tool, yet another newsletter sur le SaaS, etc.)
 
+# VARIANCE OBLIGATOIRE
+Random seed : {{seed}}
+
+Le seed change à chaque appel. **Pour le même type de business, propose un nom de marque ET un pitch RADICALEMENT DIFFÉRENTS** à chaque seed — change la niche, le ton, l'angle, l'audience. Ne tombe jamais deux fois sur la même idée.
+
 # INPUTS
 - Type de business: {{businessType}}
 - Langue du pitch & de la cible: {{languageName}}
@@ -67,7 +73,8 @@ export class CreateBusinessIdeaSkill
   public readonly prompt = PROMPT;
 
   async execute(input: CreateBusinessIdeaInput, _ctx?: SkillContext): Promise<Business> {
-    const userMessage = renderTemplate(this.prompt, input as Record<string, unknown>);
+    const seed = newSeed();
+    const userMessage = renderTemplate(this.prompt, { ...input, seed } as Record<string, unknown>);
     const out = await callClaude({
       userMessage,
       schema: BusinessSchema,

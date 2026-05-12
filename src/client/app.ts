@@ -25,6 +25,43 @@ const BUSINESS_TYPES = [
   'app mobile', 'marketplace', 'coaching', 'communauté payante',
 ];
 
+/**
+ * Topics rotated client-side when "Random" is selected on the newsletter panel.
+ * Opus 4.7 has no temperature knob, so randomization at the input layer is the
+ * most reliable way to get variety in topics across consecutive clicks.
+ */
+const RANDOM_NEWSLETTER_TOPICS = [
+  // Foot
+  'PSG', 'Real Madrid', 'FC Barcelone', 'Manchester United', 'Liverpool FC',
+  'Arsenal FC', 'Bayern Munich', 'Olympique de Marseille', 'OL', 'Champions League',
+  'Ligue 1', 'Premier League', 'Liga', 'Serie A', 'Bundesliga', 'mercato foot',
+  // Autres sports
+  'Formule 1', 'MotoGP', 'NBA', 'NBA Draft', 'NFL', 'MLB', 'UFC', 'boxe',
+  'tennis ATP', 'tennis WTA', 'Roland-Garros', 'cyclisme', 'Tour de France',
+  'rugby XV de France', 'rugby Top 14', 'F1 Academy', 'World Rallye Championship',
+  // Tech
+  'AI / Machine Learning', 'LLMs et agents IA', 'crypto', 'Bitcoin',
+  'Ethereum', 'NFT et art numérique', 'hardware Apple', 'écosystème Android',
+  'SaaS B2B', 'fintech', 'robotique', 'open source', 'cybersécurité',
+  'voitures électriques', 'Tesla', 'startups françaises',
+  // Culture
+  'cinéma indé', 'cinéma français', 'séries Netflix', 'séries HBO',
+  'rap FR', 'K-pop', 'anime japonais', 'gaming AAA', 'gaming indé',
+  'retrogaming', 'esports League of Legends', 'esports CS2', 'Twitch streaming',
+  'BD franco-belge', 'manga seinen',
+  // Business
+  'VC et startups', 'levées de fonds', 'M&A français', 'immobilier parisien',
+  'marchés financiers', 'side hustles', 'creator economy', 'newsletters payantes',
+  // Lifestyle / autres
+  'gastronomie étoilée', 'café spécialité', 'vins naturels', 'vélo gravel',
+  'running ultra-trail', 'hiking et bivouac', 'géopolitique', 'climat',
+  'urbanisme et architecture', 'IA et éthique', 'philosophie contemporaine',
+];
+
+function pickRandom<T>(arr: ReadonlyArray<T>): T {
+  return arr[Math.floor(Math.random() * arr.length)]!;
+}
+
 // ---------- Global elements ----------
 const els = {
   sectionsNav: $('sectionsNav'),
@@ -415,12 +452,16 @@ async function newsletterPickTopic() {
   try {
     const language = els.nlLang.value as Language;
     const languageName = LANG_NAMES[language];
-    const topicValue = els.nlTopic.value;
+    // When the user picks "Random", rotate client-side across a big list.
+    // Opus 4.7 (no temperature) tends to converge on the same answer if we
+    // ask the LLM to pick at random — feeding it a concrete topic each time
+    // is the most reliable way to get variety.
+    const topicValue = els.nlTopic.value || pickRandom(RANDOM_NEWSLETTER_TOPICS);
 
     currentConcept = await runSkill<
-      { topic?: string; languageName: string },
+      { topic: string; languageName: string },
       NewsletterConcept
-    >('pick_newsletter_topic', topicValue ? { topic: topicValue, languageName } : { languageName });
+    >('pick_newsletter_topic', { topic: topicValue, languageName });
 
     els.nlName.textContent = currentConcept.name;
     els.nlTopicTag.textContent = currentConcept.topic;
