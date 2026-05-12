@@ -1,38 +1,13 @@
-// Shared types between server and client.
-// The client imports only the type-only declarations (erased at build time).
+/**
+ * Shared types used by both the server and the bundled client.
+ *
+ * Domain types (`Business`, `VideoScript`) mirror the Zod schemas defined
+ * in `src/skills/creative/*Skill.ts` — keep them in sync if you change the
+ * skill schemas.
+ */
 
-export type SkillType = 'llm' | 'api';
-
-export interface SectionMeta {
-  id: string;
-  name: string;
-  icon?: string;
-  description?: string;
-  order?: number;
-}
-
-export interface SkillMeta {
-  id: string;
-  order?: number;
-  name: string;
-  description?: string;
-  type: SkillType;
-  model?: string;
-  endpoint?: string;
-  inputs?: string[];
-  outputs?: string[];
-}
-
-export interface Skill extends SkillMeta {
-  folder: string;
-  prompt: string | null;
-}
-
-export interface Section extends SectionMeta {
-  skills: Skill[];
-}
-
-// ---- AI UGC domain types ----
+export type Language = 'fr' | 'en' | 'es' | 'de' | 'it' | 'pt';
+export type AspectRatio = '9:16' | '16:9';
 
 export interface Business {
   name: string;
@@ -48,5 +23,27 @@ export interface VideoScript {
   emotion?: string;
 }
 
-export type Language = 'fr' | 'en' | 'es' | 'de' | 'it' | 'pt';
-export type AspectRatio = '9:16' | '16:9';
+// ----- Skill registry (what `/api/skills` returns) -----
+
+export type SkillTypeTag = 'llm' | 'api';
+
+export interface SerializedSkill {
+  name: string;
+  displayName: string;
+  description: string;
+  category: string;
+  order: number;
+  type: SkillTypeTag;
+  model: string | null;
+  endpoint: string | null;
+  prompt: string | null;
+  inputSchema: unknown;
+}
+
+export interface SerializedSection {
+  id: string;
+  name: string;
+  icon: string;
+  order: number;
+  skills: SerializedSkill[];
+}

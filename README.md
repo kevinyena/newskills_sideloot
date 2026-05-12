@@ -1,99 +1,128 @@
 # AI Skills Hub
 
-Interface modulaire de skills IA pour agents, structurée par section. Chaque skill est un dossier autonome avec son prompt et ses métadonnées, chargé dynamiquement par le serveur.
+Interface modulaire de skills IA pour agents — **skills implémentées en TypeScript**, structurées pour être directement portables vers `apps/core_app/worker/src/skills/` (Mintery) ou tout autre runtime d'agent qui suit le pattern `BaseSkill`.
 
 **Stack** : TypeScript (backend `tsx` + frontend bundlé via `esbuild`), Express, **Claude Opus 4.7** (skills LLM), **Veo 3.1** (génération vidéo).
 
-## Structure des skills
+## Architecture des skills
 
 ```
-skills/
-├── loader.js                  Charge récursivement le registre depuis le filesystem
-└── <section-id>/              Une section = un groupe de skills (ex: ai-ugc)
-    ├── section.json           Métadonnées de la section
-    └── <NN-skill-id>/         Un dossier = une skill
-        ├── meta.json          Métadonnées (type, model, inputs, outputs)
-        └── prompt.md          Prompt template (LLM skills uniquement)
+src/skills/
+├── BaseSkill.ts                                ← interface compat Mintery (clonée)
+├── runtime/
+│   ├── anthropic.ts                            ← wrapper Claude (Opus 4.7, adaptive thinking, structured outputs)
+│   ├── veo.ts                                  ← wrapper Veo 3.1 (start/poll/proxy + blocking helper)
+│   └── render.ts                               ← interpolation {{var}} dans les prompts
+├── creative/
+│   ├── CreateBusinessIdeaSkill.ts              ← skill 1
+│   ├── GenerateVideoScriptSkill.ts             ← skill 2
+│   └── AdaptToVeoPromptSkill.ts                ← skill 3
+├── media/
+│   └── GenerateVeoVideoSkill.ts                ← skill 4
+└── index.ts                                    ← registry + sérialisation pour l'UI
 ```
 
-### Format `section.json`
+## Pattern de skill (compat Mintery)
 
-```json
-{
-  "id": "ai-ugc",
-  "name": "AI UGC",
-  "icon": "🎬",
-  "description": "...",
-  "order": 1
+Chaque skill est une classe TypeScript qui implémente `BaseSkill<TInput, TOutput>` :
+
+```ts
+export interface BaseSkill<TInput, TOutput> {
+  name: string;                       // ID technique (snake_case)
+  description: string;                // visible LLM + UI
+  schema: z.ZodTypeAny;               // validation des inputs
+  execute(input: TInput, ctx?: SkillContext): Promise<TOutput>;
+
+  // Métadonnées UI optionnelles (ignorées par Mintery) :
+  displayName?: string;
+  category?: string;                  // 'creative', 'media', …
+  order?: number;
+  type?: 'llm' | 'api';
+  model?: string;
+  prompt?: string;                    // template visible dans l'UI
+  endpoint?: string;
 }
 ```
 
-### Format `meta.json`
+Les 4 champs requis (`name`, `description`, `schema`, `execute`) **correspondent 1:1** à l'interface `BaseSkill` de Mintery (`apps/core_app/worker/src/skills/BaseSkill.ts`). Migration future = `cp -r src/skills/creative apps/core_app/worker/src/skills/marketing/`.
 
-```json
-{
-  "id": "create-business-idea",
-  "order": 1,
-  "name": "Create Business Idea",
-  "description": "...",
-  "type": "llm",
-  "model": "claude-opus-4-7",
-  "inputs": ["language", "businessType"],
-  "outputs": ["business"]
+### Exemple — `CreateBusinessIdeaSkill.ts`
+
+```ts
+const InputSchema = z.object({ businessType: z.string(), languageName: z.string() });
+const OutputSchema = z.object({ name: z.string(), type: z.string(), pitch: z.string(), target: z.string() });
+
+const PROMPT = `# RÔLE\nTu es le meilleur CMO du monde...`;
+
+export class CreateBusinessIdeaSkill implements BaseSkill<Input, Business> {
+  name = 'create_business_idea';
+  description = '…';
+  schema = InputSchema;
+
+  category = 'creative';
+  order = 1;
+  type = 'llm' as const;
+  model = 'claude-opus-4-7';
+  prompt = PROMPT;
+
+  async execute(input, _ctx) {
+    return callClaude({
+      userMessage: renderTemplate(this.prompt, input),
+      schema: OutputSchema,
+      effort: 'high',
+    });
+  }
 }
 ```
 
-- `type: "llm"` → requiert un `prompt.md` adjacent. Le serveur substitue les variables `{{var}}` du template.
-- `type: "api"` → pas de prompt, appelle directement une API tierce (Veo, etc.).
+## Skills enregistrées
 
-### Format `prompt.md`
-
-Markdown libre, avec interpolation de variables via `{{nomVariable}}`. Les objets sont auto-sérialisés en JSON par le loader.
-
-## Sections actuelles
-
-### 🎬 AI UGC
-
-Pipeline de création UGC viral, du concept business à la vidéo générée par Veo 3.1.
-
-| # | Skill | Type | Rôle |
-|---|-------|------|------|
-| 1 | Create Business Idea | `llm` (Claude Opus 4.7) | Génère une idée de business viable et différenciante |
-| 2 | Generate Video Script | `llm` (Claude Opus 4.7) | Conçoit un concept vidéo UGC viral (hook, concept, réplique) |
-| 3 | Adapt Script to Veo Prompt | `llm` (Claude Opus 4.7) | Transforme le script en prompt Veo 3.1 photoréaliste avec dialogue audible |
-| 4 | Generate Video (Veo 3.1) | `api` (`veo-3.1-generate-preview`, Google) | Appelle Veo 3.1, génère la vidéo finale 8s avec audio synchronisé |
-
-Les 3 skills LLM utilisent **adaptive thinking** + **structured outputs** (Zod schemas) via le SDK Anthropic — la sortie JSON est garantie conforme au schéma, sans parsing fragile.
+| # | Skill (technical name) | Type | Modèle | Rôle |
+|---|---|---|---|---|
+| 1 | `create_business_idea` | llm | claude-opus-4-7 | Génère une idée business viable et différenciante |
+| 2 | `generate_video_script` | llm | claude-opus-4-7 | Conçoit un concept UGC viral (hook, concept, réplique) |
+| 3 | `adapt_to_veo_prompt` | llm | claude-opus-4-7 | Transforme le script en prompt Veo 3.1 photoréaliste |
+| 4 | `generate_veo_video` | api | veo-3.1-generate-preview | Génère la vidéo finale 8s avec audio synchronisé |
 
 ## API
 
 | Méthode | Endpoint | Description |
-|---------|----------|-------------|
-| `GET` | `/api/skills` | Retourne le registre complet (sections + skills + prompts) |
-| `POST` | `/api/reload-skills` | Recharge le registre depuis le filesystem |
-| `POST` | `/api/skills/:section/:skill/run` | Exécute une skill avec les inputs en body JSON |
-| `GET` | `/api/video-status?name=...` | Poll d'une opération Veo en cours |
-| `GET` | `/api/video-proxy?uri=...` | Proxy authentifié pour télécharger la vidéo générée |
+|---|---|---|
+| `GET` | `/api/skills` | Retourne `SerializedSection[]` (sections + skills + prompts + schémas JSON) |
+| `POST` | `/api/skills/:name/run` | Runner générique. Valide via `skill.schema` puis appelle `skill.execute()`. Retourne `{ output }` |
+| `POST` | `/api/veo/start` | Démarre une génération Veo, retourne `{ operationName }` |
+| `GET` | `/api/veo/status?name=…` | Poll d'une opération Veo |
+| `GET` | `/api/veo/proxy?uri=…` | Proxy authentifié pour télécharger la vidéo |
 
-## Layout
+Les endpoints Veo split (`/start` + `/status` + `/proxy`) servent l'UI interactive avec progression live. Les agents Mintery utiliseront plutôt `GenerateVeoVideoSkill.execute()` qui bloque jusqu'à completion.
 
+## Ajouter une skill
+
+1. Crée `src/skills/<category>/MaSkill.ts` (classe implémentant `BaseSkill`)
+2. Définis `InputSchema` (Zod) + `OutputSchema` (Zod)
+3. Implémente `execute(input, ctx?)`
+4. Ajoute l'instance dans `src/skills/index.ts` dans `ALL_SKILLS`
+5. Restart le serveur — la skill apparaît automatiquement dans l'UI
+
+Le serveur ne change jamais — c'est un thin host par-dessus le registry.
+
+## Migration vers Mintery
+
+```bash
+# Dans Mintery (branche pre-prd, architecture, etc.)
+cp -r path/to/newskills_sideloot/src/skills/creative  apps/core_app/worker/src/skills/marketing/
+cp -r path/to/newskills_sideloot/src/skills/media     apps/core_app/worker/src/skills/marketing/
+cp    path/to/newskills_sideloot/src/skills/runtime/anthropic.ts  apps/core_app/worker/src/lib/
+cp    path/to/newskills_sideloot/src/skills/runtime/veo.ts        apps/core_app/worker/src/lib/
 ```
-src/
-├── server.ts           Express server + skill runners
-├── skills-loader.ts    Scanner filesystem → registre typé
-├── types.ts            Types partagés (Section, Skill, Business, …)
-└── client/
-    └── app.ts          UI (bundlé vers public/app.js via esbuild)
 
-skills/                 Données pures (data files, pas de code)
-public/                 index.html + style.css (app.js généré)
-```
+Les classes n'ont **aucune dépendance** vers ce repo — elles importent uniquement `BaseSkill`, `z`, et leurs runtimes. Mintery a déjà `BaseSkill`, donc les imports `../BaseSkill.js` sont juste à rediriger vers son chemin local.
 
 ## Installation
 
 ```bash
 npm install
-cp .env.example .env   # puis remplir ANTHROPIC_API_KEY + GEMINI_API_KEY
+cp .env.example .env   # remplir ANTHROPIC_API_KEY + GEMINI_API_KEY
 npm start              # build client + run server
 # ou
 npm run dev            # watch mode (tsx watch + esbuild --watch)
@@ -113,14 +142,5 @@ Ouvre http://localhost:3000
 ## Pré-requis
 
 - **Node.js 18+** (pour `fetch` natif)
-- **Clé API Anthropic** — utilisée par les 3 skills LLM. Obtenir une clé : https://console.anthropic.com/settings/keys
-- **Clé API Google AI** avec **facturation activée** — utilisée uniquement par la skill `generate-video` (Veo 3.1 n'est pas accessible sur le tier gratuit). Obtenir une clé : https://aistudio.google.com/apikey
-
-## Ajouter une nouvelle skill
-
-1. Crée le dossier `skills/<section>/<NN-skill-id>/`
-2. Ajoute `meta.json` (et `prompt.md` si LLM)
-3. Si la skill nécessite une logique custom (API tierce, transformation), ajoute le handler dans `server.js`
-4. `POST /api/reload-skills` ou redémarre le serveur
-
-Pour une **nouvelle section**, crée `skills/<section-id>/section.json` puis ajoute les skills dedans.
+- **Clé API Anthropic** — utilisée par les 3 skills LLM. https://console.anthropic.com/settings/keys
+- **Clé API Google AI** avec **facturation activée** — utilisée par `generate_veo_video` (Veo 3.1 inaccessible sur le tier gratuit). https://aistudio.google.com/apikey

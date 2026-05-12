@@ -1,4 +1,25 @@
-# RÔLE
+import { z } from 'zod';
+import type { BaseSkill, SkillContext } from '../BaseSkill.js';
+import { callClaude, CLAUDE_MODEL } from '../runtime/anthropic.js';
+import { renderTemplate } from '../runtime/render.js';
+import { BusinessSchema } from './CreateBusinessIdeaSkill.js';
+import { VideoScriptSchema } from './GenerateVideoScriptSkill.js';
+
+// ----- Schemas -----
+export const AdaptToVeoPromptInputSchema = z.object({
+  business: BusinessSchema,
+  video: VideoScriptSchema,
+  languageName: z.string().describe("Langue parlée dans la vidéo — e.g. 'français'"),
+});
+export type AdaptToVeoPromptInput = z.infer<typeof AdaptToVeoPromptInputSchema>;
+
+export const VeoPromptSchema = z.object({
+  veoPrompt: z.string(),
+});
+export type VeoPromptOutput = z.infer<typeof VeoPromptSchema>;
+
+// ----- Prompt -----
+const PROMPT = `# RÔLE
 Tu es prompt engineer senior spécialisé Veo 3.1. Tu sais exactement comment formuler un prompt pour obtenir une vidéo UGC indiscernable d'une vraie capture iPhone.
 
 # OBJECTIF
@@ -22,11 +43,43 @@ Transformer le concept vidéo fourni en **prompt Veo 3.1 complet en ANGLAIS**, q
 - Ne JAMAIS proposer plusieurs plans / coupes
 
 # INPUTS
-- Business : {{businessJson}}
-- Vidéo (hook, concept, spokenLine) : {{videoJson}}
+- Business : {{business}}
+- Vidéo (hook, concept, spokenLine) : {{video}}
 - Langue parlée dans la vidéo : {{languageName}}
 
 # OUTPUT (JSON strict)
 {
   "veoPrompt": "le prompt Veo 3.1 complet en anglais, en un seul bloc de texte continu, suivant la structure ci-dessus"
+}
+`;
+
+// ----- Skill -----
+export class AdaptToVeoPromptSkill
+  implements BaseSkill<AdaptToVeoPromptInput, VeoPromptOutput>
+{
+  public readonly name = 'adapt_to_veo_prompt';
+  public readonly description =
+    'Transforme un script vidéo en prompt Veo 3.1 ultra-précis (réalisme photoréaliste + dialogue audible synchronisé).';
+  public readonly schema = AdaptToVeoPromptInputSchema;
+
+  // ----- UI metadata -----
+  public readonly displayName = 'Adapt Script to Veo Prompt';
+  public readonly category = 'creative';
+  public readonly order = 3;
+  public readonly type = 'llm' as const;
+  public readonly model = CLAUDE_MODEL;
+  public readonly prompt = PROMPT;
+
+  async execute(
+    input: AdaptToVeoPromptInput,
+    _ctx?: SkillContext,
+  ): Promise<VeoPromptOutput> {
+    const userMessage = renderTemplate(this.prompt, input as unknown as Record<string, unknown>);
+    // Lower effort here: deterministic structural transform, not creative ideation.
+    return callClaude({
+      userMessage,
+      schema: VeoPromptSchema,
+      effort: 'medium',
+    });
+  }
 }

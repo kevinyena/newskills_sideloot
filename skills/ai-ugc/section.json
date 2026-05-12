@@ -1,7 +1,0 @@
-{
-  "id": "ai-ugc",
-  "name": "AI UGC",
-  "icon": "🎬",
-  "description": "Génère une idée business, un script viral, puis la vidéo UGC via Veo 3.1.",
-  "order": 1
-}

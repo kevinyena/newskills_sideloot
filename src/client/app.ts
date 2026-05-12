@@ -1,6 +1,6 @@
 import type {
-  Section,
-  Skill,
+  SerializedSection,
+  SerializedSkill,
   Business,
   VideoScript,
   Language,
@@ -50,8 +50,18 @@ const els = {
   modalMeta: $('modalMeta'),
 };
 
+const LANG_NAMES: Record<Language, string> = {
+  fr: 'français', en: 'anglais', es: 'espagnol',
+  de: 'allemand', it: 'italien', pt: 'portugais',
+};
+
+const BUSINESS_TYPES = [
+  'agence', 'SaaS', 'newsletter', 'infoproduct',
+  'app mobile', 'marketplace', 'coaching', 'communauté payante',
+];
+
 // ---------- State ----------
-let REGISTRY: Section[] = [];
+let SECTIONS: SerializedSection[] = [];
 let ACTIVE_SECTION = 'ai-ugc';
 let currentBusiness: Business | null = null;
 let currentVideo: VideoScript | null = null;
@@ -60,43 +70,50 @@ let pollTimer: number | null = null;
 let startedAt = 0;
 
 // ---------- API client ----------
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   const data = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
-async function runSkill<T>(sectionId: string, skillId: string, body: unknown): Promise<T> {
-  setSkillStatus(skillId, 'running');
+async function apiGet<T>(path: string): Promise<T> {
+  const res = await fetch(path);
+  const data = (await res.json()) as T & { error?: string };
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function runSkill<TInput, TOutput>(name: string, input: TInput): Promise<TOutput> {
+  setSkillStatus(name, 'running');
   try {
-    const data = await api<T>(`/api/skills/${sectionId}/${skillId}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    setSkillStatus(skillId, 'done');
-    return data;
+    const data = await apiPost<{ output: TOutput }>(`/api/skills/${name}/run`, input);
+    setSkillStatus(name, 'done');
+    return data.output;
   } catch (e) {
-    setSkillStatus(skillId, 'failed');
+    setSkillStatus(name, 'failed');
     throw e;
   }
 }
 
 // ---------- Init ----------
 async function init() {
-  REGISTRY = await api<Section[]>('/api/skills');
+  SECTIONS = await apiGet<SerializedSection[]>('/api/skills');
   renderSidebar();
   selectSection(ACTIVE_SECTION);
 }
 
 function renderSidebar() {
   els.sectionsNav.innerHTML = '';
-  for (const section of REGISTRY) {
+  for (const section of SECTIONS) {
     const btn = document.createElement('button');
     btn.className = 'skill-item' + (section.id === ACTIVE_SECTION ? ' active' : '');
     btn.dataset.section = section.id;
-    btn.innerHTML = `<span class="skill-icon">${section.icon ?? '✨'}</span><span class="skill-label">${section.name}</span>`;
+    btn.innerHTML = `<span class="skill-icon">${section.icon}</span><span class="skill-label">${section.name}</span>`;
     btn.addEventListener('click', () => selectSection(section.id));
     els.sectionsNav.appendChild(btn);
   }
@@ -107,38 +124,38 @@ function selectSection(id: string) {
   document.querySelectorAll<HTMLElement>('.skill-item').forEach((el) =>
     el.classList.toggle('active', el.dataset.section === id),
   );
-  const section = REGISTRY.find((s) => s.id === id);
+  const section = SECTIONS.find((s) => s.id === id);
   if (!section) return;
   els.sectionTitle.textContent = section.name;
-  els.sectionDesc.textContent = section.description ?? '';
+  els.sectionDesc.textContent = `Pipeline de ${section.skills.length} skills. Clique sur une chip pour voir son prompt.`;
   renderSkillsFlow(section);
 }
 
-function renderSkillsFlow(section: Section) {
+function renderSkillsFlow(section: SerializedSection) {
   els.skillsFlow.innerHTML = '';
   for (const skill of section.skills) {
     const chip = document.createElement('div');
     chip.className = 'skill-chip';
-    chip.dataset.skillId = skill.id;
+    chip.dataset.skillId = skill.name;
     chip.innerHTML = `
       <span class="chip-type">${skill.type}</span>
       <div class="chip-head">
-        <span class="chip-order">${skill.order ?? ''}</span>
-        <span>${skill.name}</span>
+        <span class="chip-order">${skill.order}</span>
+        <span>${skill.displayName}</span>
         <span class="chip-status">idle</span>
       </div>
-      <div class="chip-desc">${skill.description ?? ''}</div>
+      <div class="chip-desc">${skill.description}</div>
     `;
-    chip.addEventListener('click', () => openPromptModal(section, skill));
+    chip.addEventListener('click', () => openPromptModal(skill));
     els.skillsFlow.appendChild(chip);
   }
 }
 
 // ---------- Modal ----------
-function openPromptModal(section: Section, skill: Skill) {
-  els.modalKicker.textContent = `${section.name} · Skill ${skill.order ?? ''}`;
-  els.modalTitle.textContent = skill.name;
-  els.modalDesc.textContent = skill.description ?? '';
+function openPromptModal(skill: SerializedSkill) {
+  els.modalKicker.textContent = `${skill.category} · ${skill.name}`;
+  els.modalTitle.textContent = skill.displayName;
+  els.modalDesc.textContent = skill.description;
 
   els.modalMeta.innerHTML = '';
   const addTag = (label: string) => {
@@ -150,13 +167,23 @@ function openPromptModal(section: Section, skill: Skill) {
   addTag(`type: ${skill.type}`);
   if (skill.model) addTag(`model: ${skill.model}`);
   if (skill.endpoint) addTag(`endpoint: ${skill.endpoint}`);
-  if (skill.inputs) addTag(`inputs: ${skill.inputs.join(', ')}`);
-  if (skill.outputs) addTag(`outputs: ${skill.outputs.join(', ')}`);
+  addTag(`order: ${skill.order}`);
+  addTag(`category: ${skill.category}`);
 
-  els.modalPrompt.textContent = skill.prompt
-    ?? `(Cette skill est de type "api" et n'utilise pas de prompt LLM — elle appelle directement l'API ${skill.endpoint ?? ''}.)`;
+  const inputs = describeSchema(skill.inputSchema);
+  if (inputs.length) addTag(`inputs: ${inputs.join(', ')}`);
+
+  els.modalPrompt.textContent =
+    skill.prompt ??
+    `(Cette skill est de type "api" et n'utilise pas de prompt LLM — elle appelle directement ${skill.endpoint ?? "l'API distante"}.)`;
 
   els.promptModal.classList.remove('hidden');
+}
+
+function describeSchema(schema: unknown): string[] {
+  if (!schema || typeof schema !== 'object') return [];
+  const s = schema as { properties?: Record<string, unknown> };
+  return Object.keys(s.properties ?? {});
 }
 
 function closeModal() {
@@ -171,8 +198,8 @@ document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 // ---------- Skill state UI ----------
 type SkillStatus = 'idle' | 'running' | 'done' | 'failed';
 
-function setSkillStatus(skillId: string, status: SkillStatus) {
-  const chip = document.querySelector<HTMLElement>(`.skill-chip[data-skill-id="${skillId}"]`);
+function setSkillStatus(skillName: string, status: SkillStatus) {
+  const chip = document.querySelector<HTMLElement>(`.skill-chip[data-skill-id="${skillName}"]`);
   if (!chip) return;
   chip.classList.remove('running', 'done', 'failed');
   if (status !== 'idle') chip.classList.add(status);
@@ -228,25 +255,32 @@ async function generateIdea() {
 
   try {
     const language = els.lang.value as Language;
-    const businessType = els.biz.value || undefined;
+    const languageName = LANG_NAMES[language];
+    const businessType =
+      els.biz.value || BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)]!;
 
-    const s1 = await runSkill<{ business: Business }>(
-      'ai-ugc', 'create-business-idea',
-      { language, businessType },
+    // Skill 1
+    currentBusiness = await runSkill<{ businessType: string; languageName: string }, Business>(
+      'create_business_idea',
+      { businessType, languageName },
     );
-    currentBusiness = s1.business;
 
-    const s2 = await runSkill<{ video: VideoScript }>(
-      'ai-ugc', 'generate-video-script',
-      { business: currentBusiness, language },
-    );
-    currentVideo = s2.video;
+    // Skill 2
+    currentVideo = await runSkill<
+      { business: Business; languageName: string },
+      VideoScript
+    >('generate_video_script', { business: currentBusiness, languageName });
 
-    const s3 = await runSkill<{ veoPrompt: string }>(
-      'ai-ugc', 'adapt-to-veo-prompt',
-      { business: currentBusiness, video: currentVideo, language },
-    );
-    currentVeoPrompt = s3.veoPrompt;
+    // Skill 3
+    const adapted = await runSkill<
+      { business: Business; video: VideoScript; languageName: string },
+      { veoPrompt: string }
+    >('adapt_to_veo_prompt', {
+      business: currentBusiness,
+      video: currentVideo,
+      languageName,
+    });
+    currentVeoPrompt = adapted.veoPrompt;
 
     // Render
     els.bizName.textContent = currentBusiness?.name ?? '—';
@@ -277,20 +311,22 @@ async function generateVideo() {
   startedAt = Date.now();
 
   try {
+    setSkillStatus('generate_veo_video', 'running');
     const aspectRatio = els.aspect.value as AspectRatio;
-    const out = await runSkill<{ operationName: string }>(
-      'ai-ugc', 'generate-video',
-      { veoPrompt: currentVeoPrompt, aspectRatio },
-    );
-    pollOperation(out.operationName);
+    const { operationName } = await apiPost<{ operationName: string }>('/api/veo/start', {
+      prompt: currentVeoPrompt,
+      aspectRatio,
+    });
+    pollOperation(operationName);
   } catch (e) {
+    setSkillStatus('generate_veo_video', 'failed');
     showError((e as Error).message);
     els.videoCard.classList.add('hidden');
     els.genVideoBtn.disabled = false;
   }
 }
 
-interface VideoStatus {
+interface VeoStatus {
   done: boolean;
   videoUri: string | null;
   raw?: unknown;
@@ -306,14 +342,16 @@ function pollOperation(name: string) {
       : 'Finalisation…';
 
     try {
-      const data = await api<VideoStatus>(`/api/video-status?name=${encodeURIComponent(name)}`);
+      const data = await apiGet<VeoStatus>(`/api/veo/status?name=${encodeURIComponent(name)}`);
       if (data.done) {
         if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
         if (!data.videoUri) {
+          setSkillStatus('generate_veo_video', 'failed');
           showError('Opération terminée mais aucune vidéo retournée.\n' + JSON.stringify(data.raw ?? {}, null, 2));
           els.videoCard.classList.add('hidden');
         } else {
-          const proxied = `/api/video-proxy?uri=${encodeURIComponent(data.videoUri)}`;
+          setSkillStatus('generate_veo_video', 'done');
+          const proxied = `/api/veo/proxy?uri=${encodeURIComponent(data.videoUri)}`;
           els.videoStatus.classList.add('hidden');
           els.videoPlayer.muted = false;
           els.videoPlayer.volume = 1;
@@ -327,6 +365,7 @@ function pollOperation(name: string) {
       }
     } catch (e) {
       if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
+      setSkillStatus('generate_veo_video', 'failed');
       showError((e as Error).message);
       els.genVideoBtn.disabled = false;
     }
