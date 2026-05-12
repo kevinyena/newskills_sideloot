@@ -1,8 +1,13 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+// Override: shell env may have an empty/stale ANTHROPIC_API_KEY (Claude Code session)
+// that would otherwise shadow the value from .env.
+dotenv.config({ override: true });
 import express, { type Request, type Response } from 'express';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { z } from 'zod';
 import { loadRegistry, renderPrompt } from './skills-loader.js';
+import { callClaude } from './anthropic-client.js';
 import type { Section, Skill, Business, VideoScript, Language, AspectRatio } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -10,11 +15,16 @@ const ROOT = path.resolve(__dirname, '..');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-if (!API_KEY) {
-  console.error('GEMINI_API_KEY manquante dans .env');
+if (!ANTHROPIC_API_KEY) {
+  console.error('ANTHROPIC_API_KEY manquante dans .env (skills LLM)');
+  process.exit(1);
+}
+if (!GEMINI_API_KEY) {
+  console.error('GEMINI_API_KEY manquante dans .env (génération vidéo Veo 3.1)');
   process.exit(1);
 }
 
@@ -33,31 +43,26 @@ const LANG_NAMES: Record<Language, string> = {
 
 let REGISTRY: Section[] = await loadRegistry();
 
-// ---------- Gemini helper ----------
-interface GeminiCallOpts {
-  model?: string;
-  prompt: string;
-  temperature?: number;
-}
+// ---------- Zod schemas for structured outputs ----------
+const BusinessSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  pitch: z.string(),
+  target: z.string(),
+});
 
-async function callGeminiJson<T>({ model = 'gemini-2.5-flash', prompt, temperature = 1.0 }: GeminiCallOpts): Promise<T> {
-  const url = `${GEMINI_BASE}/models/${model}:generateContent`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY! },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature },
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
-  const data = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-  return JSON.parse(text) as T;
-}
+const VideoScriptSchema = z.object({
+  hook: z.string(),
+  concept: z.string(),
+  spokenLine: z.string(),
+  emotion: z.string().optional(),
+});
 
+const VeoPromptSchema = z.object({
+  veoPrompt: z.string(),
+});
+
+// ---------- Helpers ----------
 function findSkill(sectionId: string, skillId: string): { section: Section; skill: Skill } | null {
   const section = REGISTRY.find((s) => s.id === sectionId);
   if (!section) return null;
@@ -77,7 +82,7 @@ app.post('/api/reload-skills', async (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// ---------- Skill: ai-ugc / create-business-idea ----------
+// ---------- Skill: ai-ugc / create-business-idea (Claude) ----------
 interface CreateIdeaBody { language?: Language; businessType?: string; }
 
 app.post('/api/skills/ai-ugc/create-business-idea/run', async (req: Request, res: Response) => {
@@ -91,18 +96,20 @@ app.post('/api/skills/ai-ugc/create-business-idea/run', async (req: Request, res
       businessType: type,
       languageName: langName(language),
     });
-    const business = await callGeminiJson<Omit<Business, 'type'> & { type?: string }>({
-      model: found.skill.model,
-      prompt,
-      temperature: 1.1,
+
+    const business = await callClaude({
+      userMessage: prompt,
+      schema: BusinessSchema,
+      effort: 'high',
     });
+
     res.json({ business: { ...business, type }, _prompt: prompt });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
 });
 
-// ---------- Skill: ai-ugc / generate-video-script ----------
+// ---------- Skill: ai-ugc / generate-video-script (Claude) ----------
 interface GenScriptBody { business: Business; language?: Language; }
 
 app.post('/api/skills/ai-ugc/generate-video-script/run', async (req: Request, res: Response) => {
@@ -116,18 +123,20 @@ app.post('/api/skills/ai-ugc/generate-video-script/run', async (req: Request, re
       businessJson: business,
       languageName: langName(language),
     });
-    const video = await callGeminiJson<VideoScript>({
-      model: found.skill.model,
-      prompt,
-      temperature: 1.15,
+
+    const video = await callClaude({
+      userMessage: prompt,
+      schema: VideoScriptSchema,
+      effort: 'high',
     });
+
     res.json({ video, _prompt: prompt });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
 });
 
-// ---------- Skill: ai-ugc / adapt-to-veo-prompt ----------
+// ---------- Skill: ai-ugc / adapt-to-veo-prompt (Claude) ----------
 interface AdaptBody { business: Business; video: VideoScript; language?: Language; }
 
 app.post('/api/skills/ai-ugc/adapt-to-veo-prompt/run', async (req: Request, res: Response) => {
@@ -142,18 +151,21 @@ app.post('/api/skills/ai-ugc/adapt-to-veo-prompt/run', async (req: Request, res:
       videoJson: video,
       languageName: langName(language),
     });
-    const out = await callGeminiJson<{ veoPrompt: string }>({
-      model: found.skill.model,
-      prompt,
-      temperature: 0.6,
+
+    // Lower effort here: this is a deterministic structural transform, not creative ideation.
+    const out = await callClaude({
+      userMessage: prompt,
+      schema: VeoPromptSchema,
+      effort: 'medium',
     });
+
     res.json({ veoPrompt: out.veoPrompt, _prompt: prompt });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
 });
 
-// ---------- Skill: ai-ugc / generate-video (Veo 3.1) ----------
+// ---------- Skill: ai-ugc / generate-video (Veo 3.1, Gemini API) ----------
 interface GenVideoBody { veoPrompt: string; aspectRatio?: AspectRatio; }
 
 app.post('/api/skills/ai-ugc/generate-video/run', async (req: Request, res: Response) => {
@@ -164,7 +176,7 @@ app.post('/api/skills/ai-ugc/generate-video/run', async (req: Request, res: Resp
     const url = `${GEMINI_BASE}/models/veo-3.1-generate-preview:predictLongRunning`;
     const r = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY! },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY! },
       body: JSON.stringify({
         instances: [{ prompt: veoPrompt }],
         parameters: { aspectRatio, resolution: '720p', durationSeconds: 8 },
@@ -178,12 +190,12 @@ app.post('/api/skills/ai-ugc/generate-video/run', async (req: Request, res: Resp
   }
 });
 
-// ---------- Veo polling & proxy ----------
+// ---------- Veo polling & proxy (Gemini API) ----------
 app.get('/api/video-status', async (req: Request, res: Response) => {
   try {
     const name = req.query.name as string | undefined;
     if (!name) return res.status(400).json({ error: 'name manquant' });
-    const r = await fetch(`${GEMINI_BASE}/${name}`, { headers: { 'x-goog-api-key': API_KEY! } });
+    const r = await fetch(`${GEMINI_BASE}/${name}`, { headers: { 'x-goog-api-key': GEMINI_API_KEY! } });
     if (!r.ok) return res.status(r.status).json({ error: await r.text() });
 
     const data = await r.json() as {
@@ -210,7 +222,7 @@ app.get('/api/video-proxy', async (req: Request, res: Response) => {
   try {
     const uri = req.query.uri as string | undefined;
     if (!uri) return res.status(400).json({ error: 'uri manquant' });
-    const r = await fetch(uri, { headers: { 'x-goog-api-key': API_KEY! } });
+    const r = await fetch(uri, { headers: { 'x-goog-api-key': GEMINI_API_KEY! } });
     if (!r.ok) return res.status(r.status).send(await r.text());
     res.setHeader('Content-Type', r.headers.get('content-type') ?? 'video/mp4');
     const buf = Buffer.from(await r.arrayBuffer());
@@ -220,4 +232,4 @@ app.get('/api/video-proxy', async (req: Request, res: Response) => {
   }
 });
 
-app.listen(PORT, () => console.log(`AI Skills Hub on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`AI Skills Hub on http://localhost:${PORT} (Claude + Veo)`));

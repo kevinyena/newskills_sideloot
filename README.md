@@ -2,7 +2,7 @@
 
 Interface modulaire de skills IA pour agents, structurée par section. Chaque skill est un dossier autonome avec son prompt et ses métadonnées, chargé dynamiquement par le serveur.
 
-**Stack** : TypeScript (backend `tsx` + frontend bundlé via `esbuild`), Express, Gemini 2.5 Flash, Veo 3.1.
+**Stack** : TypeScript (backend `tsx` + frontend bundlé via `esbuild`), Express, **Claude Opus 4.7** (skills LLM), **Veo 3.1** (génération vidéo).
 
 ## Structure des skills
 
@@ -37,7 +37,7 @@ skills/
   "name": "Create Business Idea",
   "description": "...",
   "type": "llm",
-  "model": "gemini-2.5-flash",
+  "model": "claude-opus-4-7",
   "inputs": ["language", "businessType"],
   "outputs": ["business"]
 }
@@ -58,10 +58,12 @@ Pipeline de création UGC viral, du concept business à la vidéo générée par
 
 | # | Skill | Type | Rôle |
 |---|-------|------|------|
-| 1 | Create Business Idea | `llm` (Gemini 2.5 Flash) | Génère une idée de business viable et différenciante |
-| 2 | Generate Video Script | `llm` (Gemini 2.5 Flash) | Conçoit un concept vidéo UGC viral (hook, concept, réplique) |
-| 3 | Adapt Script to Veo Prompt | `llm` (Gemini 2.5 Flash) | Transforme le script en prompt Veo 3.1 photoréaliste avec dialogue audible |
-| 4 | Generate Video (Veo 3.1) | `api` (`veo-3.1-generate-preview`) | Appelle Veo 3.1, génère la vidéo finale 8s avec audio synchronisé |
+| 1 | Create Business Idea | `llm` (Claude Opus 4.7) | Génère une idée de business viable et différenciante |
+| 2 | Generate Video Script | `llm` (Claude Opus 4.7) | Conçoit un concept vidéo UGC viral (hook, concept, réplique) |
+| 3 | Adapt Script to Veo Prompt | `llm` (Claude Opus 4.7) | Transforme le script en prompt Veo 3.1 photoréaliste avec dialogue audible |
+| 4 | Generate Video (Veo 3.1) | `api` (`veo-3.1-generate-preview`, Google) | Appelle Veo 3.1, génère la vidéo finale 8s avec audio synchronisé |
+
+Les 3 skills LLM utilisent **adaptive thinking** + **structured outputs** (Zod schemas) via le SDK Anthropic — la sortie JSON est garantie conforme au schéma, sans parsing fragile.
 
 ## API
 
@@ -91,7 +93,7 @@ public/                 index.html + style.css (app.js généré)
 
 ```bash
 npm install
-cp .env.example .env   # puis remplir GEMINI_API_KEY
+cp .env.example .env   # puis remplir ANTHROPIC_API_KEY + GEMINI_API_KEY
 npm start              # build client + run server
 # ou
 npm run dev            # watch mode (tsx watch + esbuild --watch)
@@ -111,7 +113,8 @@ Ouvre http://localhost:3000
 ## Pré-requis
 
 - **Node.js 18+** (pour `fetch` natif)
-- **Clé API Google AI** avec **facturation activée** — Veo 3.1 n'est pas accessible sur le tier gratuit. Obtenir une clé : https://aistudio.google.com/apikey
+- **Clé API Anthropic** — utilisée par les 3 skills LLM. Obtenir une clé : https://console.anthropic.com/settings/keys
+- **Clé API Google AI** avec **facturation activée** — utilisée uniquement par la skill `generate-video` (Veo 3.1 n'est pas accessible sur le tier gratuit). Obtenir une clé : https://aistudio.google.com/apikey
 
 ## Ajouter une nouvelle skill
 

@@ -4,7 +4,7 @@
   "name": "Generate Video Script",
   "description": "Crée un concept vidéo UGC viral à partir de l'idée business (hook, concept, réplique).",
   "type": "llm",
-  "model": "gemini-2.5-flash",
+  "model": "claude-opus-4-7",
   "inputs": ["business", "language"],
   "outputs": ["video"]
 }

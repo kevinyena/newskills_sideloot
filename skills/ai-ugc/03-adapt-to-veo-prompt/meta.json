@@ -4,7 +4,7 @@
   "name": "Adapt Script to Veo Prompt",
   "description": "Transforme le script en prompt Veo 3.1 ultra-précis (réalisme, dialogue audible, audio).",
   "type": "llm",
-  "model": "gemini-2.5-flash",
+  "model": "claude-opus-4-7",
   "inputs": ["business", "video", "language"],
   "outputs": ["veoPrompt"]
 }
