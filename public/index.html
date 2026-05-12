@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Skills Hub</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">AI</div>
+      <div>
+        <div class="brand-title">Skills Hub</div>
+        <div class="brand-sub">pour agents IA</div>
+      </div>
+    </div>
+    <nav class="skill-list" id="sectionsNav"></nav>
+  </aside>
+
+  <main class="main">
+    <section class="skill-panel" id="panel-ai-ugc" data-panel="ai-ugc">
+      <header class="panel-header">
+        <h1 id="sectionTitle">AI UGC</h1>
+        <p id="sectionDesc"></p>
+      </header>
+
+      <!-- Pipeline visualisation -->
+      <div class="pipeline">
+        <div class="pipeline-header">
+          <span class="kicker">Pipeline</span>
+          <span class="muted small">Clique sur une skill pour voir son prompt.</span>
+        </div>
+        <div class="skills-flow" id="skillsFlow"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <label class="field">
+          <span>Langue du script</span>
+          <select id="lang">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Format</span>
+          <select id="aspect">
+            <option value="9:16">9:16 (Reels / TikTok)</option>
+            <option value="16:9">16:9 (YouTube)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Type de business</span>
+          <select id="biz">
+            <option value="">Random</option>
+            <option value="agence">Agence</option>
+            <option value="SaaS">SaaS</option>
+            <option value="newsletter">Newsletter</option>
+            <option value="infoproduct">Infoproduit</option>
+            <option value="app mobile">App mobile</option>
+            <option value="marketplace">Marketplace</option>
+            <option value="coaching">Coaching</option>
+            <option value="communauté payante">Communauté payante</option>
+          </select>
+        </label>
+        <button id="randomBtn" class="btn primary">🎲 Random idea</button>
+        <button id="genVideoBtn" class="btn primary" disabled>🎬 Générer la vidéo</button>
+      </div>
+
+      <!-- Idea card -->
+      <div id="ideaCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Business</div>
+          <h2 id="bizName"></h2>
+          <div class="meta"><span class="tag" id="bizType"></span></div>
+          <p id="bizPitch" class="muted"></p>
+          <p class="muted"><strong>Cible :</strong> <span id="bizTarget"></span></p>
+        </div>
+        <div class="card-section">
+          <div class="kicker">Script vidéo</div>
+          <div class="script-field"><span class="lbl">Hook</span><p id="vHook"></p></div>
+          <div class="script-field"><span class="lbl">Concept</span><p id="vConcept"></p></div>
+          <div class="script-field"><span class="lbl">Réplique parlée</span><p id="vSpoken" class="spoken"></p></div>
+          <details class="veo-prompt">
+            <summary>Prompt Veo 3.1 (anglais)</summary>
+            <pre id="vPrompt"></pre>
+          </details>
+        </div>
+      </div>
+
+      <!-- Video card -->
+      <div id="videoCard" class="card hidden">
+        <div class="kicker">Vidéo</div>
+        <div id="videoStatus" class="status">
+          <div class="spinner"></div>
+          <span id="statusText">Génération en cours…</span>
+          <span id="elapsed" class="muted"></span>
+        </div>
+        <video id="videoPlayer" controls playsinline class="hidden"></video>
+        <p class="muted hint hidden" id="audioHint">🔊 Si tu n'entends rien, vérifie que le lecteur n'est pas muet.</p>
+        <div class="card-actions hidden" id="videoActions">
+          <a id="downloadBtn" class="btn primary" download="ai-ugc.mp4">⬇ Télécharger</a>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error hidden"></div>
+    </section>
+  </main>
+
+  <!-- Modal: prompt viewer -->
+  <div class="modal hidden" id="promptModal">
+    <div class="modal-overlay" data-close></div>
+    <div class="modal-content">
+      <header class="modal-header">
+        <div>
+          <div class="kicker" id="modalKicker"></div>
+          <h2 id="modalTitle"></h2>
+          <p class="muted" id="modalDesc"></p>
+        </div>
+        <button class="btn ghost" data-close>✕</button>
+      </header>
+      <div class="modal-meta" id="modalMeta"></div>
+      <pre class="prompt-view" id="modalPrompt"></pre>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

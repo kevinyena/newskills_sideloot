@@ -1,0 +1,10 @@
+{
+  "id": "adapt-to-veo-prompt",
+  "order": 3,
+  "name": "Adapt Script to Veo Prompt",
+  "description": "Transforme le script en prompt Veo 3.1 ultra-précis (réalisme, dialogue audible, audio).",
+  "type": "llm",
+  "model": "gemini-2.5-flash",
+  "inputs": ["business", "video", "language"],
+  "outputs": ["veoPrompt"]
+}

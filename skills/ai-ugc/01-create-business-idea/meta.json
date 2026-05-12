@@ -1,0 +1,10 @@
+{
+  "id": "create-business-idea",
+  "order": 1,
+  "name": "Create Business Idea",
+  "description": "Génère une idée de business viable (agence, SaaS, newsletter, infoproduct…).",
+  "type": "llm",
+  "model": "gemini-2.5-flash",
+  "inputs": ["language", "businessType"],
+  "outputs": ["business"]
+}
