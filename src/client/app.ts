@@ -1,3 +1,4 @@
+import { marked } from 'marked';
 import type {
   SerializedSection,
   SerializedSkill,
@@ -14,19 +15,38 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
   return el as T;
 }
 
+const LANG_NAMES: Record<Language, string> = {
+  fr: 'français', en: 'anglais', es: 'espagnol',
+  de: 'allemand', it: 'italien', pt: 'portugais',
+};
+
+const BUSINESS_TYPES = [
+  'agence', 'SaaS', 'newsletter', 'infoproduct',
+  'app mobile', 'marketplace', 'coaching', 'communauté payante',
+];
+
+// ---------- Global elements ----------
 const els = {
   sectionsNav: $('sectionsNav'),
   skillsFlow: $('skillsFlow'),
   sectionTitle: $('sectionTitle'),
   sectionDesc: $('sectionDesc'),
-  lang: $<HTMLSelectElement>('lang'),
-  aspect: $<HTMLSelectElement>('aspect'),
-  biz: $<HTMLSelectElement>('biz'),
-  randomBtn: $<HTMLButtonElement>('randomBtn'),
-  genVideoBtn: $<HTMLButtonElement>('genVideoBtn'),
-  ideaCard: $('ideaCard'),
-  videoCard: $('videoCard'),
   errorBox: $('errorBox'),
+  // modal
+  promptModal: $('promptModal'),
+  modalKicker: $('modalKicker'),
+  modalTitle: $('modalTitle'),
+  modalDesc: $('modalDesc'),
+  modalPrompt: $('modalPrompt'),
+  modalMeta: $('modalMeta'),
+  // ugc panel
+  ugcLang: $<HTMLSelectElement>('ugcLang'),
+  ugcAspect: $<HTMLSelectElement>('ugcAspect'),
+  ugcBiz: $<HTMLSelectElement>('ugcBiz'),
+  ugcRandomBtn: $<HTMLButtonElement>('ugcRandomBtn'),
+  ugcGenVideoBtn: $<HTMLButtonElement>('ugcGenVideoBtn'),
+  ugcIdeaCard: $('ugcIdeaCard'),
+  ugcVideoCard: $('ugcVideoCard'),
   bizName: $('bizName'),
   bizType: $('bizType'),
   bizPitch: $('bizPitch'),
@@ -42,34 +62,60 @@ const els = {
   videoActions: $('videoActions'),
   downloadBtn: $<HTMLAnchorElement>('downloadBtn'),
   audioHint: $('audioHint'),
-  promptModal: $('promptModal'),
-  modalKicker: $('modalKicker'),
-  modalTitle: $('modalTitle'),
-  modalDesc: $('modalDesc'),
-  modalPrompt: $('modalPrompt'),
-  modalMeta: $('modalMeta'),
+  // newsletter panel
+  nlLang: $<HTMLSelectElement>('nlLang'),
+  nlTopic: $<HTMLSelectElement>('nlTopic'),
+  nlRandomBtn: $<HTMLButtonElement>('nlRandomBtn'),
+  nlGenBtn: $<HTMLButtonElement>('nlGenBtn'),
+  nlConceptCard: $('nlConceptCard'),
+  nlEditionCard: $('nlEditionCard'),
+  nlName: $('nlName'),
+  nlTopicTag: $('nlTopicTag'),
+  nlFreqTag: $('nlFreqTag'),
+  nlAudience: $('nlAudience'),
+  nlAngle: $('nlAngle'),
+  nlGenStatus: $('nlGenStatus'),
+  nlStatusText: $('nlStatusText'),
+  nlElapsed: $('nlElapsed'),
+  nlEdition: $('nlEdition'),
 };
-
-const LANG_NAMES: Record<Language, string> = {
-  fr: 'français', en: 'anglais', es: 'espagnol',
-  de: 'allemand', it: 'italien', pt: 'portugais',
-};
-
-const BUSINESS_TYPES = [
-  'agence', 'SaaS', 'newsletter', 'infoproduct',
-  'app mobile', 'marketplace', 'coaching', 'communauté payante',
-];
 
 // ---------- State ----------
 let SECTIONS: SerializedSection[] = [];
 let ACTIVE_SECTION = '';
+
+// UGC state
 let currentBusiness: Business | null = null;
 let currentVideo: VideoScript | null = null;
 let currentVeoPrompt: string | null = null;
 let pollTimer: number | null = null;
-let startedAt = 0;
+let videoStartedAt = 0;
 
-// ---------- API client ----------
+// Newsletter state
+interface NewsletterConcept {
+  topic: string;
+  name: string;
+  audience: string;
+  angle: string;
+  frequency: string;
+}
+interface NewsletterSection {
+  heading: string;
+  body: string;
+  sources?: string[];
+}
+interface NewsletterEdition {
+  title: string;
+  subject: string;
+  intro: string;
+  sections: NewsletterSection[];
+  outro: string;
+  publishedAt: string;
+}
+let currentConcept: NewsletterConcept | null = null;
+let nlElapsedTimer: number | null = null;
+
+// ---------- API ----------
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
@@ -103,7 +149,6 @@ async function runSkill<TInput, TOutput>(name: string, input: TInput): Promise<T
 // ---------- Init ----------
 async function init() {
   SECTIONS = await apiGet<SerializedSection[]>('/api/skills');
-  // Default to the first section (sections are pre-sorted by `order` server-side).
   if (SECTIONS.length === 0) {
     showError('Aucune skill enregistrée.');
     return;
@@ -130,11 +175,17 @@ function selectSection(id: string) {
   document.querySelectorAll<HTMLElement>('.skill-item').forEach((el) =>
     el.classList.toggle('active', el.dataset.section === id),
   );
+  // Toggle visibility of panels by data-panel match
+  document.querySelectorAll<HTMLElement>('.skill-panel').forEach((p) => {
+    p.classList.toggle('hidden', p.dataset.panel !== id);
+  });
+
   const section = SECTIONS.find((s) => s.id === id);
   if (!section) return;
   els.sectionTitle.textContent = section.name;
   els.sectionDesc.textContent = `Pipeline de ${section.skills.length} skills. Clique sur une chip pour voir son prompt.`;
   renderSkillsFlow(section);
+  clearError();
 }
 
 function renderSkillsFlow(section: SerializedSection) {
@@ -162,7 +213,6 @@ function openPromptModal(skill: SerializedSkill) {
   els.modalKicker.textContent = `${skill.category} · ${skill.name}`;
   els.modalTitle.textContent = skill.displayName;
   els.modalDesc.textContent = skill.description;
-
   els.modalMeta.innerHTML = '';
   const addTag = (label: string) => {
     const tag = document.createElement('span');
@@ -175,14 +225,11 @@ function openPromptModal(skill: SerializedSkill) {
   if (skill.endpoint) addTag(`endpoint: ${skill.endpoint}`);
   addTag(`order: ${skill.order}`);
   addTag(`category: ${skill.category}`);
-
   const inputs = describeSchema(skill.inputSchema);
   if (inputs.length) addTag(`inputs: ${inputs.join(', ')}`);
-
   els.modalPrompt.textContent =
     skill.prompt ??
     `(Cette skill est de type "api" et n'utilise pas de prompt LLM — elle appelle directement ${skill.endpoint ?? "l'API distante"}.)`;
-
   els.promptModal.classList.remove('hidden');
 }
 
@@ -192,18 +239,14 @@ function describeSchema(schema: unknown): string[] {
   return Object.keys(s.properties ?? {});
 }
 
-function closeModal() {
-  els.promptModal.classList.add('hidden');
-}
-
+function closeModal() { els.promptModal.classList.add('hidden'); }
 document.querySelectorAll<HTMLElement>('[data-close]').forEach((el) =>
   el.addEventListener('click', closeModal),
 );
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 
-// ---------- Skill state UI ----------
+// ---------- Skill chip status ----------
 type SkillStatus = 'idle' | 'running' | 'done' | 'failed';
-
 function setSkillStatus(skillName: string, status: SkillStatus) {
   const chip = document.querySelector<HTMLElement>(`.skill-chip[data-skill-id="${skillName}"]`);
   if (!chip) return;
@@ -212,7 +255,6 @@ function setSkillStatus(skillName: string, status: SkillStatus) {
   const lbl = chip.querySelector('.chip-status');
   if (lbl) lbl.textContent = status;
 }
-
 function resetSkillsStatus() {
   document.querySelectorAll<HTMLElement>('.skill-chip').forEach((chip) => {
     chip.classList.remove('running', 'done', 'failed');
@@ -221,23 +263,14 @@ function resetSkillsStatus() {
   });
 }
 
-// ---------- Error / video reset ----------
-function showError(msg: string) {
-  els.errorBox.textContent = msg;
-  els.errorBox.classList.remove('hidden');
-}
+// ---------- Error ----------
+function showError(msg: string) { els.errorBox.textContent = msg; els.errorBox.classList.remove('hidden'); }
+function clearError() { els.errorBox.classList.add('hidden'); els.errorBox.textContent = ''; }
 
-function clearError() {
-  els.errorBox.classList.add('hidden');
-  els.errorBox.textContent = '';
-}
-
-function resetVideoCard() {
-  if (pollTimer !== null) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-  els.videoCard.classList.add('hidden');
+// ---------- UGC pipeline ----------
+function resetUgcVideoCard() {
+  if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
+  els.ugcVideoCard.classList.add('hidden');
   els.videoPlayer.classList.add('hidden');
   els.videoPlayer.removeAttribute('src');
   els.videoActions.classList.add('hidden');
@@ -245,108 +278,87 @@ function resetVideoCard() {
   els.videoStatus.classList.remove('hidden');
 }
 
-// ---------- Pipeline: idea ----------
-async function generateIdea() {
+async function ugcGenerateIdea() {
   clearError();
-  resetVideoCard();
+  resetUgcVideoCard();
   resetSkillsStatus();
   currentBusiness = null;
   currentVideo = null;
   currentVeoPrompt = null;
-  els.ideaCard.classList.add('hidden');
-  els.genVideoBtn.disabled = true;
-  els.randomBtn.disabled = true;
-  const original = els.randomBtn.textContent;
-  els.randomBtn.textContent = '⏳ Génération…';
+  els.ugcIdeaCard.classList.add('hidden');
+  els.ugcGenVideoBtn.disabled = true;
+  els.ugcRandomBtn.disabled = true;
+  const original = els.ugcRandomBtn.textContent;
+  els.ugcRandomBtn.textContent = '⏳ Génération…';
 
   try {
-    const language = els.lang.value as Language;
+    const language = els.ugcLang.value as Language;
     const languageName = LANG_NAMES[language];
     const businessType =
-      els.biz.value || BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)]!;
+      els.ugcBiz.value || BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)]!;
 
-    // Skill 1
     currentBusiness = await runSkill<{ businessType: string; languageName: string }, Business>(
-      'create_business_idea',
-      { businessType, languageName },
+      'create_business_idea', { businessType, languageName },
     );
-
-    // Skill 2
-    currentVideo = await runSkill<
-      { business: Business; languageName: string },
-      VideoScript
-    >('generate_video_script', { business: currentBusiness, languageName });
-
-    // Skill 3
+    currentVideo = await runSkill<{ business: Business; languageName: string }, VideoScript>(
+      'generate_video_script', { business: currentBusiness, languageName },
+    );
     const adapted = await runSkill<
       { business: Business; video: VideoScript; languageName: string },
       { veoPrompt: string }
-    >('adapt_to_veo_prompt', {
-      business: currentBusiness,
-      video: currentVideo,
-      languageName,
-    });
+    >('adapt_to_veo_prompt', { business: currentBusiness, video: currentVideo, languageName });
     currentVeoPrompt = adapted.veoPrompt;
 
-    // Render
-    els.bizName.textContent = currentBusiness?.name ?? '—';
-    els.bizType.textContent = currentBusiness?.type ?? '';
-    els.bizPitch.textContent = currentBusiness?.pitch ?? '';
-    els.bizTarget.textContent = currentBusiness?.target ?? '';
-    els.vHook.textContent = currentVideo?.hook ?? '';
-    els.vConcept.textContent = currentVideo?.concept ?? '';
-    els.vSpoken.textContent = currentVideo?.spokenLine ? `« ${currentVideo.spokenLine} »` : '';
-    els.vPrompt.textContent = currentVeoPrompt ?? '';
-    els.ideaCard.classList.remove('hidden');
-    els.genVideoBtn.disabled = false;
+    els.bizName.textContent = currentBusiness.name;
+    els.bizType.textContent = currentBusiness.type;
+    els.bizPitch.textContent = currentBusiness.pitch;
+    els.bizTarget.textContent = currentBusiness.target;
+    els.vHook.textContent = currentVideo.hook;
+    els.vConcept.textContent = currentVideo.concept;
+    els.vSpoken.textContent = `« ${currentVideo.spokenLine} »`;
+    els.vPrompt.textContent = currentVeoPrompt;
+    els.ugcIdeaCard.classList.remove('hidden');
+    els.ugcGenVideoBtn.disabled = false;
   } catch (e) {
     showError((e as Error).message);
   } finally {
-    els.randomBtn.disabled = false;
-    els.randomBtn.textContent = original;
+    els.ugcRandomBtn.disabled = false;
+    els.ugcRandomBtn.textContent = original;
   }
 }
 
-// ---------- Pipeline: video ----------
-async function generateVideo() {
+async function ugcGenerateVideo() {
   if (!currentVeoPrompt) return;
   clearError();
-  resetVideoCard();
-  els.videoCard.classList.remove('hidden');
-  els.genVideoBtn.disabled = true;
-  startedAt = Date.now();
+  resetUgcVideoCard();
+  els.ugcVideoCard.classList.remove('hidden');
+  els.ugcGenVideoBtn.disabled = true;
+  videoStartedAt = Date.now();
 
   try {
     setSkillStatus('generate_veo_video', 'running');
-    const aspectRatio = els.aspect.value as AspectRatio;
+    const aspectRatio = els.ugcAspect.value as AspectRatio;
     const { operationName } = await apiPost<{ operationName: string }>('/api/veo/start', {
-      prompt: currentVeoPrompt,
-      aspectRatio,
+      prompt: currentVeoPrompt, aspectRatio,
     });
-    pollOperation(operationName);
+    pollVeoOperation(operationName);
   } catch (e) {
     setSkillStatus('generate_veo_video', 'failed');
     showError((e as Error).message);
-    els.videoCard.classList.add('hidden');
-    els.genVideoBtn.disabled = false;
+    els.ugcVideoCard.classList.add('hidden');
+    els.ugcGenVideoBtn.disabled = false;
   }
 }
 
-interface VeoStatus {
-  done: boolean;
-  videoUri: string | null;
-  raw?: unknown;
-}
-
-function pollOperation(name: string) {
+interface VeoStatus { done: boolean; videoUri: string | null; raw?: unknown }
+function pollVeoOperation(name: string) {
   const tick = async () => {
-    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    const elapsed = Math.floor((Date.now() - videoStartedAt) / 1000);
     els.elapsed.textContent = `(${elapsed}s)`;
     els.statusText.textContent =
       elapsed < 30 ? 'Génération en cours…'
       : elapsed < 90 ? 'Rendu vidéo… (1-3 min)'
       : 'Finalisation…';
-
     try {
       const data = await apiGet<VeoStatus>(`/api/veo/status?name=${encodeURIComponent(name)}`);
       if (data.done) {
@@ -354,7 +366,7 @@ function pollOperation(name: string) {
         if (!data.videoUri) {
           setSkillStatus('generate_veo_video', 'failed');
           showError('Opération terminée mais aucune vidéo retournée.\n' + JSON.stringify(data.raw ?? {}, null, 2));
-          els.videoCard.classList.add('hidden');
+          els.ugcVideoCard.classList.add('hidden');
         } else {
           setSkillStatus('generate_veo_video', 'done');
           const proxied = `/api/veo/proxy?uri=${encodeURIComponent(data.videoUri)}`;
@@ -367,20 +379,147 @@ function pollOperation(name: string) {
           els.downloadBtn.href = proxied;
           els.videoActions.classList.remove('hidden');
         }
-        els.genVideoBtn.disabled = false;
+        els.ugcGenVideoBtn.disabled = false;
       }
     } catch (e) {
       if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
       setSkillStatus('generate_veo_video', 'failed');
       showError((e as Error).message);
-      els.genVideoBtn.disabled = false;
+      els.ugcGenVideoBtn.disabled = false;
     }
   };
   tick();
   pollTimer = window.setInterval(tick, 10000);
 }
 
-els.randomBtn.addEventListener('click', generateIdea);
-els.genVideoBtn.addEventListener('click', generateVideo);
+// ---------- Newsletter pipeline ----------
+function resetNewsletterEditionCard() {
+  if (nlElapsedTimer !== null) { clearInterval(nlElapsedTimer); nlElapsedTimer = null; }
+  els.nlEditionCard.classList.add('hidden');
+  els.nlEdition.classList.add('hidden');
+  els.nlEdition.innerHTML = '';
+  els.nlGenStatus.classList.remove('hidden');
+}
+
+async function newsletterPickTopic() {
+  clearError();
+  resetNewsletterEditionCard();
+  resetSkillsStatus();
+  currentConcept = null;
+  els.nlConceptCard.classList.add('hidden');
+  els.nlGenBtn.disabled = true;
+  els.nlRandomBtn.disabled = true;
+  const original = els.nlRandomBtn.textContent;
+  els.nlRandomBtn.textContent = '⏳ Génération…';
+
+  try {
+    const language = els.nlLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const topicValue = els.nlTopic.value;
+
+    currentConcept = await runSkill<
+      { topic?: string; languageName: string },
+      NewsletterConcept
+    >('pick_newsletter_topic', topicValue ? { topic: topicValue, languageName } : { languageName });
+
+    els.nlName.textContent = currentConcept.name;
+    els.nlTopicTag.textContent = currentConcept.topic;
+    els.nlFreqTag.textContent = currentConcept.frequency;
+    els.nlAudience.textContent = currentConcept.audience;
+    els.nlAngle.textContent = currentConcept.angle;
+    els.nlConceptCard.classList.remove('hidden');
+    els.nlGenBtn.disabled = false;
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.nlRandomBtn.disabled = false;
+    els.nlRandomBtn.textContent = original;
+  }
+}
+
+async function newsletterGenerateEdition() {
+  if (!currentConcept) return;
+  clearError();
+  resetNewsletterEditionCard();
+  els.nlEditionCard.classList.remove('hidden');
+  els.nlGenBtn.disabled = true;
+  const startedAt = Date.now();
+
+  // Live elapsed counter
+  nlElapsedTimer = window.setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    els.nlElapsed.textContent = `(${elapsed}s)`;
+    els.nlStatusText.textContent =
+      elapsed < 15 ? 'Recherche web…'
+      : elapsed < 45 ? 'Synthèse des sources…'
+      : elapsed < 90 ? 'Rédaction de l\'édition…'
+      : 'Finalisation…';
+  }, 1000);
+
+  try {
+    setSkillStatus('generate_newsletter', 'running');
+    const language = els.nlLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const edition = await runSkill<
+      { concept: NewsletterConcept; languageName: string },
+      NewsletterEdition
+    >('generate_newsletter', { concept: currentConcept, languageName });
+    setSkillStatus('generate_newsletter', 'done');
+    renderNewsletter(edition);
+  } catch (e) {
+    setSkillStatus('generate_newsletter', 'failed');
+    showError((e as Error).message);
+  } finally {
+    if (nlElapsedTimer !== null) { clearInterval(nlElapsedTimer); nlElapsedTimer = null; }
+    els.nlGenStatus.classList.add('hidden');
+    els.nlGenBtn.disabled = false;
+  }
+}
+
+function renderNewsletter(edition: NewsletterEdition) {
+  if (!currentConcept) return;
+  const sectionsHtml = edition.sections
+    .map((sec) => {
+      const sourcesHtml = sec.sources?.length
+        ? `<div class="nl-sources"><strong>Sources :</strong> ${sec.sources
+            .map((u) => `<a href="${escapeAttr(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(u)}</a>`)
+            .join(' · ')}</div>`
+        : '';
+      return `
+        <section class="nl-section">
+          <h2>${escapeHtml(sec.heading)}</h2>
+          ${marked.parse(sec.body)}
+          ${sourcesHtml}
+        </section>
+      `;
+    })
+    .join('');
+
+  const published = formatDate(edition.publishedAt);
+  els.nlEdition.innerHTML = `
+    <div class="nl-subject">📨 ${escapeHtml(edition.subject)}</div>
+    <h1 class="nl-title">${escapeHtml(edition.title)}</h1>
+    <div class="nl-meta">${escapeHtml(currentConcept.name)} · ${escapeHtml(currentConcept.frequency)} · ${published}</div>
+    <div class="nl-intro">${marked.parse(edition.intro)}</div>
+    ${sectionsHtml}
+    <div class="nl-outro">${marked.parse(edition.outro)}</div>
+  `;
+  els.nlEdition.classList.remove('hidden');
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+}
+function escapeAttr(s: string): string { return escapeHtml(s); }
+function formatDate(iso: string): string {
+  try { return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }); }
+  catch { return iso; }
+}
+
+// ---------- Wiring ----------
+els.ugcRandomBtn.addEventListener('click', ugcGenerateIdea);
+els.ugcGenVideoBtn.addEventListener('click', ugcGenerateVideo);
+els.nlRandomBtn.addEventListener('click', newsletterPickTopic);
+els.nlGenBtn.addEventListener('click', newsletterGenerateEdition);
 
 init().catch((e) => showError((e as Error).message));

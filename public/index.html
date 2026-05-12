@@ -19,26 +19,26 @@
   </aside>
 
   <main class="main">
-    <section class="skill-panel" id="panel-ai-ugc" data-panel="ai-ugc">
-      <header class="panel-header">
-        <h1 id="sectionTitle">AI UGC</h1>
-        <p id="sectionDesc"></p>
-      </header>
+    <header class="panel-header">
+      <h1 id="sectionTitle"></h1>
+      <p id="sectionDesc" class="muted"></p>
+    </header>
 
-      <!-- Pipeline visualisation -->
-      <div class="pipeline">
-        <div class="pipeline-header">
-          <span class="kicker">Pipeline</span>
-          <span class="muted small">Clique sur une skill pour voir son prompt.</span>
-        </div>
-        <div class="skills-flow" id="skillsFlow"></div>
+    <!-- Pipeline visualisation (shared across panels — re-rendered on section switch) -->
+    <div class="pipeline">
+      <div class="pipeline-header">
+        <span class="kicker">Skills de cette catégorie</span>
+        <span class="muted small">Clique sur une skill pour voir son prompt.</span>
       </div>
+      <div class="skills-flow" id="skillsFlow"></div>
+    </div>
 
-      <!-- Controls -->
+    <!-- =========== Panel: Video UGC =========== -->
+    <section class="skill-panel" data-panel="video_ugc">
       <div class="controls">
         <label class="field">
           <span>Langue du script</span>
-          <select id="lang">
+          <select id="ugcLang">
             <option value="fr">Français</option>
             <option value="en">English</option>
             <option value="es">Español</option>
@@ -49,14 +49,14 @@
         </label>
         <label class="field">
           <span>Format</span>
-          <select id="aspect">
+          <select id="ugcAspect">
             <option value="9:16">9:16 (Reels / TikTok)</option>
             <option value="16:9">16:9 (YouTube)</option>
           </select>
         </label>
         <label class="field">
           <span>Type de business</span>
-          <select id="biz">
+          <select id="ugcBiz">
             <option value="">Random</option>
             <option value="agence">Agence</option>
             <option value="SaaS">SaaS</option>
@@ -68,12 +68,11 @@
             <option value="communauté payante">Communauté payante</option>
           </select>
         </label>
-        <button id="randomBtn" class="btn primary">🎲 Random idea</button>
-        <button id="genVideoBtn" class="btn primary" disabled>🎬 Générer la vidéo</button>
+        <button id="ugcRandomBtn" class="btn primary">🎲 Random idea</button>
+        <button id="ugcGenVideoBtn" class="btn primary" disabled>🎬 Générer la vidéo</button>
       </div>
 
-      <!-- Idea card -->
-      <div id="ideaCard" class="card hidden">
+      <div id="ugcIdeaCard" class="card hidden">
         <div class="card-section">
           <div class="kicker">Business</div>
           <h2 id="bizName"></h2>
@@ -93,8 +92,7 @@
         </div>
       </div>
 
-      <!-- Video card -->
-      <div id="videoCard" class="card hidden">
+      <div id="ugcVideoCard" class="card hidden">
         <div class="kicker">Vidéo</div>
         <div id="videoStatus" class="status">
           <div class="spinner"></div>
@@ -107,9 +105,75 @@
           <a id="downloadBtn" class="btn primary" download="ai-ugc.mp4">⬇ Télécharger</a>
         </div>
       </div>
-
-      <div id="errorBox" class="error hidden"></div>
     </section>
+
+    <!-- =========== Panel: Newsletter =========== -->
+    <section class="skill-panel hidden" data-panel="newsletter">
+      <div class="controls">
+        <label class="field">
+          <span>Langue</span>
+          <select id="nlLang">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Sujet</span>
+          <select id="nlTopic">
+            <option value="">Random</option>
+            <option value="PSG">PSG (foot)</option>
+            <option value="Real Madrid">Real Madrid (foot)</option>
+            <option value="Premier League">Premier League</option>
+            <option value="Formule 1">Formule 1</option>
+            <option value="NBA">NBA</option>
+            <option value="NFL">NFL</option>
+            <option value="UFC">UFC</option>
+            <option value="ATP tennis">ATP tennis</option>
+            <option value="AI / Machine Learning">AI / Machine Learning</option>
+            <option value="crypto">Crypto</option>
+            <option value="startups VC">Startups / VC</option>
+            <option value="marchés financiers">Marchés financiers</option>
+            <option value="cinéma indé">Cinéma indé</option>
+            <option value="séries">Séries</option>
+            <option value="rap FR">Rap FR</option>
+            <option value="gaming">Gaming</option>
+            <option value="géopolitique">Géopolitique</option>
+            <option value="esports">Esports</option>
+            <option value="gastronomie">Gastronomie</option>
+          </select>
+        </label>
+        <button id="nlRandomBtn" class="btn primary">🎲 Random idea</button>
+        <button id="nlGenBtn" class="btn primary" disabled>📨 Générer la newsletter</button>
+      </div>
+
+      <div id="nlConceptCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Concept de newsletter</div>
+          <h2 id="nlName"></h2>
+          <div class="meta">
+            <span class="tag" id="nlTopicTag"></span>
+            <span class="tag" id="nlFreqTag"></span>
+          </div>
+          <p class="muted"><strong>Audience :</strong> <span id="nlAudience"></span></p>
+          <p class="muted"><strong>Angle éditorial :</strong> <span id="nlAngle"></span></p>
+        </div>
+      </div>
+
+      <div id="nlEditionCard" class="card hidden">
+        <div id="nlGenStatus" class="status">
+          <div class="spinner"></div>
+          <span id="nlStatusText">Recherche web + rédaction…</span>
+          <span id="nlElapsed" class="muted"></span>
+        </div>
+        <div id="nlEdition" class="newsletter hidden"></div>
+      </div>
+    </section>
+
+    <div id="errorBox" class="error hidden"></div>
   </main>
 
   <!-- Modal: prompt viewer -->

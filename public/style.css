@@ -274,6 +274,85 @@ body {
 .hint { margin-top: 10px; font-size: 12px; font-style: italic; }
 .hidden { display: none !important; }
 
+/* Newsletter rendering */
+.newsletter {
+  margin-top: 20px;
+  padding: 28px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-width: 720px;
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+.newsletter .nl-subject {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.newsletter h1.nl-title {
+  font-size: 24px;
+  font-weight: 800;
+  margin-bottom: 6px;
+  line-height: 1.25;
+}
+.newsletter .nl-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.newsletter .nl-intro {
+  font-size: 16px;
+  margin-bottom: 22px;
+}
+.newsletter .nl-intro p { margin-bottom: 12px; }
+.newsletter h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 30px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.newsletter .nl-section:first-of-type h2 { border-top: none; padding-top: 0; }
+.newsletter p { margin-bottom: 12px; }
+.newsletter strong { color: var(--text); font-weight: 700; }
+.newsletter em { color: var(--text); }
+.newsletter blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 14px;
+  margin: 14px 0;
+  color: var(--muted);
+  font-style: italic;
+}
+.newsletter ul, .newsletter ol {
+  padding-left: 22px;
+  margin-bottom: 14px;
+}
+.newsletter li { margin-bottom: 4px; }
+.newsletter a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.newsletter .nl-sources {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.newsletter .nl-sources strong { color: var(--muted); }
+.newsletter .nl-sources a { word-break: break-all; }
+.newsletter .nl-outro {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+.newsletter .nl-outro p { margin-bottom: 10px; }
+
 /* Modal */
 .modal {
   position: fixed; inset: 0;

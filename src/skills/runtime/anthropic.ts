@@ -26,6 +26,12 @@ function getClient(): Anthropic {
 const DEFAULT_SYSTEM =
   "Tu es un expert créatif et stratégique. Tu réponds STRICTEMENT selon le schéma JSON demandé, sans préambule ni markdown autour. Tu suis les instructions de l'utilisateur à la lettre.";
 
+/** Server-side tools Claude can use during a call. */
+export interface ClaudeTools {
+  /** Enable Anthropic's web_search server tool (`web_search_20260209`). */
+  webSearch?: boolean;
+}
+
 export interface CallClaudeOpts<T> {
   /** Stable persona/rules. Defaults to a generic JSON-strict instruction. */
   system?: string;
@@ -36,6 +42,15 @@ export interface CallClaudeOpts<T> {
   /** Thinking depth + token spend. Default: 'high'. */
   effort?: ClaudeEffort;
   maxTokens?: number;
+  /** Optional server-side tools (web search, etc.). */
+  tools?: ClaudeTools;
+}
+
+function buildTools(tools: ClaudeTools | undefined) {
+  if (!tools) return undefined;
+  const out: Array<Record<string, unknown>> = [];
+  if (tools.webSearch) out.push({ type: 'web_search_20260209', name: 'web_search' });
+  return out.length ? out : undefined;
 }
 
 export async function callClaude<T>({
@@ -44,7 +59,9 @@ export async function callClaude<T>({
   schema,
   effort = 'high',
   maxTokens = 16000,
+  tools,
 }: CallClaudeOpts<T>): Promise<T> {
+  const builtTools = buildTools(tools);
   const response = await getClient().messages.parse({
     model: CLAUDE_MODEL,
     max_tokens: maxTokens,
@@ -61,6 +78,8 @@ export async function callClaude<T>({
       },
     ],
     messages: [{ role: 'user', content: userMessage }],
+    // Cast: tool union types in the SDK are large; the wire format is stable.
+    ...(builtTools ? { tools: builtTools as unknown as never } : {}),
   });
 
   if (!response.parsed_output) {
