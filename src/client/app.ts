@@ -1,15 +1,29 @@
-const $ = (id) => document.getElementById(id);
+import type {
+  Section,
+  Skill,
+  Business,
+  VideoScript,
+  Language,
+  AspectRatio,
+} from '../types.js';
+
+// ---------- DOM helpers ----------
+function $<T extends HTMLElement = HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} introuvable`);
+  return el as T;
+}
 
 const els = {
   sectionsNav: $('sectionsNav'),
   skillsFlow: $('skillsFlow'),
   sectionTitle: $('sectionTitle'),
   sectionDesc: $('sectionDesc'),
-  lang: $('lang'),
-  aspect: $('aspect'),
-  biz: $('biz'),
-  randomBtn: $('randomBtn'),
-  genVideoBtn: $('genVideoBtn'),
+  lang: $<HTMLSelectElement>('lang'),
+  aspect: $<HTMLSelectElement>('aspect'),
+  biz: $<HTMLSelectElement>('biz'),
+  randomBtn: $<HTMLButtonElement>('randomBtn'),
+  genVideoBtn: $<HTMLButtonElement>('genVideoBtn'),
   ideaCard: $('ideaCard'),
   videoCard: $('videoCard'),
   errorBox: $('errorBox'),
@@ -24,9 +38,9 @@ const els = {
   videoStatus: $('videoStatus'),
   statusText: $('statusText'),
   elapsed: $('elapsed'),
-  videoPlayer: $('videoPlayer'),
+  videoPlayer: $<HTMLVideoElement>('videoPlayer'),
   videoActions: $('videoActions'),
-  downloadBtn: $('downloadBtn'),
+  downloadBtn: $<HTMLAnchorElement>('downloadBtn'),
   audioHint: $('audioHint'),
   promptModal: $('promptModal'),
   modalKicker: $('modalKicker'),
@@ -36,18 +50,42 @@ const els = {
   modalMeta: $('modalMeta'),
 };
 
-let REGISTRY = [];
+// ---------- State ----------
+let REGISTRY: Section[] = [];
 let ACTIVE_SECTION = 'ai-ugc';
-let currentBusiness = null;
-let currentVideo = null;
-let currentVeoPrompt = null;
-let pollTimer = null;
-let startedAt = null;
+let currentBusiness: Business | null = null;
+let currentVideo: VideoScript | null = null;
+let currentVeoPrompt: string | null = null;
+let pollTimer: number | null = null;
+let startedAt = 0;
+
+// ---------- API client ----------
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, init);
+  const data = (await res.json()) as T & { error?: string };
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function runSkill<T>(sectionId: string, skillId: string, body: unknown): Promise<T> {
+  setSkillStatus(skillId, 'running');
+  try {
+    const data = await api<T>(`/api/skills/${sectionId}/${skillId}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    setSkillStatus(skillId, 'done');
+    return data;
+  } catch (e) {
+    setSkillStatus(skillId, 'failed');
+    throw e;
+  }
+}
 
 // ---------- Init ----------
 async function init() {
-  const res = await fetch('/api/skills');
-  REGISTRY = await res.json();
+  REGISTRY = await api<Section[]>('/api/skills');
   renderSidebar();
   selectSection(ACTIVE_SECTION);
 }
@@ -58,25 +96,25 @@ function renderSidebar() {
     const btn = document.createElement('button');
     btn.className = 'skill-item' + (section.id === ACTIVE_SECTION ? ' active' : '');
     btn.dataset.section = section.id;
-    btn.innerHTML = `<span class="skill-icon">${section.icon || '✨'}</span><span class="skill-label">${section.name}</span>`;
+    btn.innerHTML = `<span class="skill-icon">${section.icon ?? '✨'}</span><span class="skill-label">${section.name}</span>`;
     btn.addEventListener('click', () => selectSection(section.id));
     els.sectionsNav.appendChild(btn);
   }
 }
 
-function selectSection(id) {
+function selectSection(id: string) {
   ACTIVE_SECTION = id;
-  document.querySelectorAll('.skill-item').forEach((el) =>
-    el.classList.toggle('active', el.dataset.section === id)
+  document.querySelectorAll<HTMLElement>('.skill-item').forEach((el) =>
+    el.classList.toggle('active', el.dataset.section === id),
   );
   const section = REGISTRY.find((s) => s.id === id);
   if (!section) return;
   els.sectionTitle.textContent = section.name;
-  els.sectionDesc.textContent = section.description || '';
+  els.sectionDesc.textContent = section.description ?? '';
   renderSkillsFlow(section);
 }
 
-function renderSkillsFlow(section) {
+function renderSkillsFlow(section: Section) {
   els.skillsFlow.innerHTML = '';
   for (const skill of section.skills) {
     const chip = document.createElement('div');
@@ -85,11 +123,11 @@ function renderSkillsFlow(section) {
     chip.innerHTML = `
       <span class="chip-type">${skill.type}</span>
       <div class="chip-head">
-        <span class="chip-order">${skill.order}</span>
+        <span class="chip-order">${skill.order ?? ''}</span>
         <span>${skill.name}</span>
         <span class="chip-status">idle</span>
       </div>
-      <div class="chip-desc">${skill.description}</div>
+      <div class="chip-desc">${skill.description ?? ''}</div>
     `;
     chip.addEventListener('click', () => openPromptModal(section, skill));
     els.skillsFlow.appendChild(chip);
@@ -97,13 +135,13 @@ function renderSkillsFlow(section) {
 }
 
 // ---------- Modal ----------
-function openPromptModal(section, skill) {
-  els.modalKicker.textContent = `${section.name} · Skill ${skill.order}`;
+function openPromptModal(section: Section, skill: Skill) {
+  els.modalKicker.textContent = `${section.name} · Skill ${skill.order ?? ''}`;
   els.modalTitle.textContent = skill.name;
-  els.modalDesc.textContent = skill.description || '';
+  els.modalDesc.textContent = skill.description ?? '';
 
   els.modalMeta.innerHTML = '';
-  const addTag = (label) => {
+  const addTag = (label: string) => {
     const tag = document.createElement('span');
     tag.className = 'tag';
     tag.textContent = label;
@@ -116,28 +154,34 @@ function openPromptModal(section, skill) {
   if (skill.outputs) addTag(`outputs: ${skill.outputs.join(', ')}`);
 
   els.modalPrompt.textContent = skill.prompt
-    ? skill.prompt
-    : '(Cette skill est de type "api" et n\'utilise pas de prompt LLM — elle appelle directement l\'API ' + (skill.endpoint || '') + '.)';
+    ?? `(Cette skill est de type "api" et n'utilise pas de prompt LLM — elle appelle directement l'API ${skill.endpoint ?? ''}.)`;
 
   els.promptModal.classList.remove('hidden');
 }
 
-function closeModal() { els.promptModal.classList.add('hidden'); }
-document.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', closeModal));
+function closeModal() {
+  els.promptModal.classList.add('hidden');
+}
+
+document.querySelectorAll<HTMLElement>('[data-close]').forEach((el) =>
+  el.addEventListener('click', closeModal),
+);
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 
 // ---------- Skill state UI ----------
-function setSkillStatus(skillId, status) {
-  const chip = document.querySelector(`.skill-chip[data-skill-id="${skillId}"]`);
+type SkillStatus = 'idle' | 'running' | 'done' | 'failed';
+
+function setSkillStatus(skillId: string, status: SkillStatus) {
+  const chip = document.querySelector<HTMLElement>(`.skill-chip[data-skill-id="${skillId}"]`);
   if (!chip) return;
   chip.classList.remove('running', 'done', 'failed');
-  if (status === 'running' || status === 'done' || status === 'failed') chip.classList.add(status);
+  if (status !== 'idle') chip.classList.add(status);
   const lbl = chip.querySelector('.chip-status');
   if (lbl) lbl.textContent = status;
 }
 
 function resetSkillsStatus() {
-  document.querySelectorAll('.skill-chip').forEach((chip) => {
+  document.querySelectorAll<HTMLElement>('.skill-chip').forEach((chip) => {
     chip.classList.remove('running', 'done', 'failed');
     const lbl = chip.querySelector('.chip-status');
     if (lbl) lbl.textContent = 'idle';
@@ -145,15 +189,21 @@ function resetSkillsStatus() {
 }
 
 // ---------- Error / video reset ----------
-function showError(msg) {
+function showError(msg: string) {
   els.errorBox.textContent = msg;
   els.errorBox.classList.remove('hidden');
 }
-function clearError() { els.errorBox.classList.add('hidden'); els.errorBox.textContent = ''; }
+
+function clearError() {
+  els.errorBox.classList.add('hidden');
+  els.errorBox.textContent = '';
+}
 
 function resetVideoCard() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = null;
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
   els.videoCard.classList.add('hidden');
   els.videoPlayer.classList.add('hidden');
   els.videoPlayer.removeAttribute('src');
@@ -162,29 +212,14 @@ function resetVideoCard() {
   els.videoStatus.classList.remove('hidden');
 }
 
-// ---------- Skill runners ----------
-async function runSkill(sectionId, skillId, body) {
-  setSkillStatus(skillId, 'running');
-  const res = await fetch(`/api/skills/${sectionId}/${skillId}/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    setSkillStatus(skillId, 'failed');
-    throw new Error(data.error || `${skillId} a échoué`);
-  }
-  setSkillStatus(skillId, 'done');
-  return data;
-}
-
-// ---------- Pipeline: create idea + script + adapt ----------
+// ---------- Pipeline: idea ----------
 async function generateIdea() {
   clearError();
   resetVideoCard();
   resetSkillsStatus();
-  currentBusiness = null; currentVideo = null; currentVeoPrompt = null;
+  currentBusiness = null;
+  currentVideo = null;
+  currentVeoPrompt = null;
   els.ideaCard.classList.add('hidden');
   els.genVideoBtn.disabled = true;
   els.randomBtn.disabled = true;
@@ -192,41 +227,40 @@ async function generateIdea() {
   els.randomBtn.textContent = '⏳ Génération…';
 
   try {
-    // Skill 1
-    const s1 = await runSkill('ai-ugc', 'create-business-idea', {
-      language: els.lang.value,
-      businessType: els.biz.value || undefined,
-    });
+    const language = els.lang.value as Language;
+    const businessType = els.biz.value || undefined;
+
+    const s1 = await runSkill<{ business: Business }>(
+      'ai-ugc', 'create-business-idea',
+      { language, businessType },
+    );
     currentBusiness = s1.business;
 
-    // Skill 2
-    const s2 = await runSkill('ai-ugc', 'generate-video-script', {
-      business: currentBusiness,
-      language: els.lang.value,
-    });
+    const s2 = await runSkill<{ video: VideoScript }>(
+      'ai-ugc', 'generate-video-script',
+      { business: currentBusiness, language },
+    );
     currentVideo = s2.video;
 
-    // Skill 3
-    const s3 = await runSkill('ai-ugc', 'adapt-to-veo-prompt', {
-      business: currentBusiness,
-      video: currentVideo,
-      language: els.lang.value,
-    });
+    const s3 = await runSkill<{ veoPrompt: string }>(
+      'ai-ugc', 'adapt-to-veo-prompt',
+      { business: currentBusiness, video: currentVideo, language },
+    );
     currentVeoPrompt = s3.veoPrompt;
 
     // Render
-    els.bizName.textContent = currentBusiness?.name || '—';
-    els.bizType.textContent = currentBusiness?.type || '';
-    els.bizPitch.textContent = currentBusiness?.pitch || '';
-    els.bizTarget.textContent = currentBusiness?.target || '';
-    els.vHook.textContent = currentVideo?.hook || '';
-    els.vConcept.textContent = currentVideo?.concept || '';
+    els.bizName.textContent = currentBusiness?.name ?? '—';
+    els.bizType.textContent = currentBusiness?.type ?? '';
+    els.bizPitch.textContent = currentBusiness?.pitch ?? '';
+    els.bizTarget.textContent = currentBusiness?.target ?? '';
+    els.vHook.textContent = currentVideo?.hook ?? '';
+    els.vConcept.textContent = currentVideo?.concept ?? '';
     els.vSpoken.textContent = currentVideo?.spokenLine ? `« ${currentVideo.spokenLine} »` : '';
-    els.vPrompt.textContent = currentVeoPrompt || '';
+    els.vPrompt.textContent = currentVeoPrompt ?? '';
     els.ideaCard.classList.remove('hidden');
     els.genVideoBtn.disabled = false;
   } catch (e) {
-    showError(e.message);
+    showError((e as Error).message);
   } finally {
     els.randomBtn.disabled = false;
     els.randomBtn.textContent = original;
@@ -243,19 +277,26 @@ async function generateVideo() {
   startedAt = Date.now();
 
   try {
-    const out = await runSkill('ai-ugc', 'generate-video', {
-      veoPrompt: currentVeoPrompt,
-      aspectRatio: els.aspect.value,
-    });
+    const aspectRatio = els.aspect.value as AspectRatio;
+    const out = await runSkill<{ operationName: string }>(
+      'ai-ugc', 'generate-video',
+      { veoPrompt: currentVeoPrompt, aspectRatio },
+    );
     pollOperation(out.operationName);
   } catch (e) {
-    showError(e.message);
+    showError((e as Error).message);
     els.videoCard.classList.add('hidden');
     els.genVideoBtn.disabled = false;
   }
 }
 
-function pollOperation(name) {
+interface VideoStatus {
+  done: boolean;
+  videoUri: string | null;
+  raw?: unknown;
+}
+
+function pollOperation(name: string) {
   const tick = async () => {
     const elapsed = Math.floor((Date.now() - startedAt) / 1000);
     els.elapsed.textContent = `(${elapsed}s)`;
@@ -265,15 +306,11 @@ function pollOperation(name) {
       : 'Finalisation…';
 
     try {
-      const res = await fetch(`/api/video-status?name=${encodeURIComponent(name)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'erreur polling');
-
+      const data = await api<VideoStatus>(`/api/video-status?name=${encodeURIComponent(name)}`);
       if (data.done) {
-        clearInterval(pollTimer);
-        pollTimer = null;
+        if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
         if (!data.videoUri) {
-          showError('Opération terminée mais aucune vidéo retournée.\n' + JSON.stringify(data.raw || {}, null, 2));
+          showError('Opération terminée mais aucune vidéo retournée.\n' + JSON.stringify(data.raw ?? {}, null, 2));
           els.videoCard.classList.add('hidden');
         } else {
           const proxied = `/api/video-proxy?uri=${encodeURIComponent(data.videoUri)}`;
@@ -289,17 +326,16 @@ function pollOperation(name) {
         els.genVideoBtn.disabled = false;
       }
     } catch (e) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-      showError(e.message);
+      if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
+      showError((e as Error).message);
       els.genVideoBtn.disabled = false;
     }
   };
   tick();
-  pollTimer = setInterval(tick, 10000);
+  pollTimer = window.setInterval(tick, 10000);
 }
 
 els.randomBtn.addEventListener('click', generateIdea);
 els.genVideoBtn.addEventListener('click', generateVideo);
 
-init();
+init().catch((e) => showError((e as Error).message));

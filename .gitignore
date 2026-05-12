@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 videos/
 *.log
+
+# build artifacts
+public/app.js
+public/app.js.map

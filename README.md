@@ -2,6 +2,8 @@
 
 Interface modulaire de skills IA pour agents, structurée par section. Chaque skill est un dossier autonome avec son prompt et ses métadonnées, chargé dynamiquement par le serveur.
 
+**Stack** : TypeScript (backend `tsx` + frontend bundlé via `esbuild`), Express, Gemini 2.5 Flash, Veo 3.1.
+
 ## Structure des skills
 
 ```
@@ -71,15 +73,40 @@ Pipeline de création UGC viral, du concept business à la vidéo générée par
 | `GET` | `/api/video-status?name=...` | Poll d'une opération Veo en cours |
 | `GET` | `/api/video-proxy?uri=...` | Proxy authentifié pour télécharger la vidéo générée |
 
+## Layout
+
+```
+src/
+├── server.ts           Express server + skill runners
+├── skills-loader.ts    Scanner filesystem → registre typé
+├── types.ts            Types partagés (Section, Skill, Business, …)
+└── client/
+    └── app.ts          UI (bundlé vers public/app.js via esbuild)
+
+skills/                 Données pures (data files, pas de code)
+public/                 index.html + style.css (app.js généré)
+```
+
 ## Installation
 
 ```bash
 npm install
 cp .env.example .env   # puis remplir GEMINI_API_KEY
-npm start
+npm start              # build client + run server
+# ou
+npm run dev            # watch mode (tsx watch + esbuild --watch)
 ```
 
 Ouvre http://localhost:3000
+
+## Scripts
+
+| Script | Rôle |
+|---|---|
+| `npm start` | Build le client puis lance le serveur (`tsx`) |
+| `npm run dev` | Mode watch : `tsx watch` + `esbuild --watch` en parallèle |
+| `npm run build:client` | Bundle `src/client/app.ts` → `public/app.js` |
+| `npm run typecheck` | `tsc --noEmit` |
 
 ## Pré-requis
 
