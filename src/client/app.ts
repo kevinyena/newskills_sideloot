@@ -26,37 +26,145 @@ const BUSINESS_TYPES = [
 ];
 
 /**
- * Topics rotated client-side when "Random" is selected on the newsletter panel.
- * Opus 4.7 has no temperature knob, so randomization at the input layer is the
- * most reliable way to get variety in topics across consecutive clicks.
+ * 100 newsletter topics with strong audience potential — passionate niches,
+ * proven readership, broad enough for Claude to find a fresh angle each call.
+ *
+ * Rationale: Opus 4.7 has no `temperature` knob, so randomization at the input
+ * layer is the most reliable lever for variety. When the user picks "Random",
+ * the client rolls one of these 100 and ships it to `pick_newsletter_topic`,
+ * which then runs its seed-driven facet-rotation prompt to vary the angle.
  */
 const RANDOM_NEWSLETTER_TOPICS = [
-  // Foot
-  'PSG', 'Real Madrid', 'FC Barcelone', 'Manchester United', 'Liverpool FC',
-  'Arsenal FC', 'Bayern Munich', 'Olympique de Marseille', 'OL', 'Champions League',
-  'Ligue 1', 'Premier League', 'Liga', 'Serie A', 'Bundesliga', 'mercato foot',
-  // Autres sports
-  'Formule 1', 'MotoGP', 'NBA', 'NBA Draft', 'NFL', 'MLB', 'UFC', 'boxe',
-  'tennis ATP', 'tennis WTA', 'Roland-Garros', 'cyclisme', 'Tour de France',
-  'rugby XV de France', 'rugby Top 14', 'F1 Academy', 'World Rallye Championship',
-  // Tech
-  'AI / Machine Learning', 'LLMs et agents IA', 'crypto', 'Bitcoin',
-  'Ethereum', 'NFT et art numérique', 'hardware Apple', 'écosystème Android',
-  'SaaS B2B', 'fintech', 'robotique', 'open source', 'cybersécurité',
-  'voitures électriques', 'Tesla', 'startups françaises',
-  // Culture
-  'cinéma indé', 'cinéma français', 'séries Netflix', 'séries HBO',
-  'rap FR', 'K-pop', 'anime japonais', 'gaming AAA', 'gaming indé',
-  'retrogaming', 'esports League of Legends', 'esports CS2', 'Twitch streaming',
-  'BD franco-belge', 'manga seinen',
-  // Business
-  'VC et startups', 'levées de fonds', 'M&A français', 'immobilier parisien',
-  'marchés financiers', 'side hustles', 'creator economy', 'newsletters payantes',
-  // Lifestyle / autres
-  'gastronomie étoilée', 'café spécialité', 'vins naturels', 'vélo gravel',
-  'running ultra-trail', 'hiking et bivouac', 'géopolitique', 'climat',
-  'urbanisme et architecture', 'IA et éthique', 'philosophie contemporaine',
+  // ----- Foot — clubs (16) -----
+  'PSG',
+  'Real Madrid',
+  'FC Barcelone',
+  'Manchester United',
+  'Liverpool FC',
+  'Arsenal FC',
+  'Chelsea FC',
+  'Manchester City',
+  'Bayern Munich',
+  'Borussia Dortmund',
+  'Juventus',
+  'AC Milan',
+  'Inter Milan',
+  'Olympique de Marseille',
+  'Olympique Lyonnais',
+  'AS Monaco',
+  // ----- Foot — compétitions & thèmes (8) -----
+  'Champions League',
+  'Premier League',
+  'Liga',
+  'Serie A',
+  'Bundesliga',
+  'Ligue 1',
+  'mercato foot',
+  'Equipe de France',
+  // ----- Motorsport (5) -----
+  'Formule 1',
+  'F1 Academy',
+  'MotoGP',
+  '24 Heures du Mans / endurance',
+  'Rallye WRC',
+  // ----- Cyclisme & endurance (3) -----
+  'Tour de France / cyclisme pro',
+  'Triathlon longue distance',
+  'Ultra-trail (UTMB)',
+  // ----- Sports US (5) -----
+  'NBA',
+  'NBA Draft prospects',
+  'NFL',
+  'MLB',
+  'NHL',
+  // ----- Tennis & raquette (3) -----
+  'tennis ATP',
+  'tennis WTA',
+  'padel',
+  // ----- Combat (3) -----
+  'UFC / MMA',
+  'boxe pro',
+  'jiu-jitsu brésilien',
+  // ----- Rugby (2) -----
+  'rugby Top 14',
+  'rugby XV de France',
+  // ----- Esports (3) -----
+  'esports League of Legends',
+  'esports Counter-Strike 2',
+  'esports Valorant',
+  // ----- Tech — IA & dev (5) -----
+  'AI / LLMs et agents IA',
+  'open source — projets émergents',
+  'robotique humanoïde',
+  'computer vision',
+  'quantum computing',
+  // ----- Tech — crypto (3) -----
+  'Bitcoin et macro crypto',
+  'Ethereum et DeFi',
+  'NFT et art numérique',
+  // ----- Tech — produits (5) -----
+  'hardware Apple',
+  'écosystème Android (Pixel, Galaxy)',
+  'voitures électriques / Tesla',
+  'drones civils',
+  'wearables / santé connectée',
+  // ----- Tech — infra & sécurité (3) -----
+  'cybersécurité offensive',
+  'cloud / DevOps',
+  'SaaS B2B',
+  // ----- Tech — émergent (2) -----
+  'biotech / longévité',
+  'climatech / cleantech',
+  // ----- Culture — image (5) -----
+  'cinéma indé (Cannes, Sundance)',
+  'cinéma français',
+  'séries Netflix',
+  'séries HBO / prestige',
+  'documentaires',
+  // ----- Culture — Japon (2) -----
+  'anime japonais',
+  'manga seinen',
+  // ----- Culture — BD (2) -----
+  'BD franco-belge contemporaine',
+  'comics US (Marvel, DC, indé)',
+  // ----- Musique (5) -----
+  'rap FR',
+  'hip-hop US',
+  'K-pop',
+  'musique électronique / clubs',
+  'jazz contemporain',
+  // ----- Gaming (3) -----
+  'gaming AAA — sorties',
+  'gaming indé (Steam Next Fest)',
+  'retrogaming',
+  // ----- Business — VC & finance (5) -----
+  'VC / startups françaises',
+  'VC US — early stage',
+  'marchés financiers / actions',
+  'M&A / Private Equity',
+  'immobilier (Paris, Lyon)',
+  // ----- Business — solopreneurs (3) -----
+  'side hustles / freelance',
+  'creator economy',
+  'personal finance / FIRE',
+  // ----- Lifestyle — food (4) -----
+  'gastronomie étoilée',
+  'café spécialité',
+  'vins naturels',
+  'whisky / spiritueux',
+  // ----- Lifestyle — outdoor (3) -----
+  'vélo gravel',
+  'surf / mer',
+  'ski / freeride',
+  // ----- Société (2) -----
+  'géopolitique',
+  'climat',
 ];
+// sanity check: should be exactly 100 items
+// (kept inline so it's obvious when editing the list)
+if (RANDOM_NEWSLETTER_TOPICS.length !== 100) {
+  console.warn(`RANDOM_NEWSLETTER_TOPICS has ${RANDOM_NEWSLETTER_TOPICS.length} items, expected 100`);
+}
 
 function pickRandom<T>(arr: ReadonlyArray<T>): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
