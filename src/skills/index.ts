@@ -109,7 +109,7 @@ export function serializeSkill(skill: BaseSkill): SerializedSkill {
 const CATEGORY_DISPLAY: Record<string, { name: string; icon: string; order: number }> = {
   video_ugc: { name: 'Video UGC', icon: '🎬', order: 1 },
   newsletter: { name: 'Newsletter', icon: '📨', order: 2 },
-  prospection: { name: 'Prospection', icon: '🎯', order: 3 },
+  prospection: { name: 'Choose Prospection', icon: '🎯', order: 3 },
 };
 
 function defaultDisplay(category: string, fallbackOrder: number) {
