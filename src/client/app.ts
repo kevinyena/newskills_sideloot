@@ -349,45 +349,42 @@ interface LocalBusiness {
     estimatedTicket: string;
   };
 }
+interface ProspectSocials {
+  instagram?: string[];
+  facebook?: string[];
+  linkedin?: string[];
+  youtube?: string[];
+  tiktok?: string[];
+  twitter?: string[];
+  pinterest?: string[];
+}
 interface MapsProspect {
   name: string;
   address?: string;
   phone?: string;
+  phonesFromWebsite?: string[];
   website?: string;
   emails?: string[];
+  socials?: ProspectSocials;
   rating?: number;
   reviewsCount?: number;
+  category?: string;
   googleMapsUri?: string;
   placeId?: string;
   summary?: string;
 }
-interface IterationTrace {
-  iteration: number;
-  jsonPath: boolean;
-  find: number;
-  withWebsite: number;
-  withEmails: number;
-  costMaps: number;
-  costEnrich: number;
-  costEmails: number;
-  costTotal: number;
-}
-interface PipelineStats {
-  find: number;
+interface ApifyStats {
+  rawCount: number;
   withWebsite: number;
   withEmails: number;
   target: number;
   done: boolean;
-  iterations: number;
-  apiCalls: number;
-  costUsd: number;
-  trace: IterationTrace[];
+  costUsdEstimate: number;
+  actorRunId?: string;
 }
 interface FetchMapsProspectsOutput {
   prospects: MapsProspect[];
-  grounded: boolean;
-  stats?: PipelineStats;
-  widgetContextToken?: string;
+  stats: ApifyStats;
 }
 let currentLocalBusiness: LocalBusiness | null = null;
 let mgElapsedTimer: number | null = null;
@@ -974,25 +971,26 @@ async function mapsGroundingFetchProspects() {
     const elapsed = Math.floor((Date.now() - startedAt) / 1000);
     els.mgElapsed.textContent = `(${elapsed}s)`;
     els.mgStatusText.textContent =
-      elapsed < 8 ? 'Interrogation de Google Maps…'
-      : elapsed < 20 ? 'Enrichissement (sites web, téléphones)…'
-      : elapsed < 40 ? 'Scraping des sites pour les emails…'
-      : elapsed < 70 ? 'Pas assez d\'emails — itération supplémentaire…'
-      : 'Finalisation…';
+      elapsed < 10 ? 'Apify : recherche des places sur Google Maps…'
+      : elapsed < 30 ? 'Apify : filtrage has-website + enrichissement contacts…'
+      : elapsed < 60 ? 'Apify : scraping des sites pour les emails…'
+      : elapsed < 120 ? 'Apify : finalisation (peut prendre quelques minutes)…'
+      : 'Apify : finalisation…';
   }, 1000);
 
   try {
     setSkillStatus('fetch_maps_prospects', 'running');
     const limit = Number(els.mgLimit.value) || 15;
-    // Override city from the panel control (user can pick a different one than the LLM's suggestion).
     const city = els.mgCity.value || currentLocalBusiness.icp.city;
+    const language = els.mgLang.value as Language;
     const out = await runSkill<
-      { mapsQuery: string; city: string; limit: number },
+      { mapsQuery: string; city: string; limit: number; language: string },
       FetchMapsProspectsOutput
     >('fetch_maps_prospects', {
       mapsQuery: currentLocalBusiness.icp.mapsQuery,
       city,
       limit,
+      language,
     });
     setSkillStatus('fetch_maps_prospects', 'done');
     renderMapsProspects(out);
@@ -1008,47 +1006,28 @@ async function mapsGroundingFetchProspects() {
 
 function renderMapsProspects(out: FetchMapsProspectsOutput) {
   els.mgProspectsCount.textContent = `(${out.prospects.length})`;
-  const groundedBadge = out.grounded
-    ? '<span class="grounded-badge">Maps grounded</span>'
-    : '<span class="muted">⚠️ Réponse non grounded sur Maps</span>';
 
   let pipelineHtml = '';
   if (out.stats) {
     const s = out.stats;
+    const sourceBadge = '<span class="grounded-badge">Apify · compass/google-maps-scraper</span>';
     const doneBadge = s.done
       ? '<span class="badge-done">✓ target atteint</span>'
-      : `<span class="badge-warn">⚠️ ${s.withEmails}/${s.target} — limite atteinte</span>`;
-
-    const traceRows = (s.trace ?? [])
-      .map((t) => {
-        const pathTag = t.jsonPath
-          ? '<span class="trace-tag trace-tag-json">JSON</span>'
-          : '<span class="trace-tag trace-tag-fallback">enrich</span>';
-        const enrichCost = t.costEnrich > 0
-          ? `<span class="muted"> + enrich $${t.costEnrich.toFixed(4)}</span>`
-          : '';
-        return `
-          <div class="trace-row">
-            <span class="trace-iter">Iter ${t.iteration}</span>
-            ${pathTag}
-            <span class="trace-counts">${t.find} found → ${t.withWebsite} site → ${t.withEmails} email</span>
-            <span class="trace-cost muted">
-              Maps $${t.costMaps.toFixed(4)}${enrichCost} + URL $${t.costEmails.toFixed(4)} = <strong>$${t.costTotal.toFixed(4)}</strong>
-            </span>
-          </div>`;
-      })
-      .join('');
+      : `<span class="badge-warn">⚠️ ${s.withEmails}/${s.target} — il manque ${s.target - s.withEmails} emails</span>`;
+    const runLink = s.actorRunId
+      ? `<a class="muted" href="https://console.apify.com/actors/runs/${s.actorRunId}" target="_blank" rel="noopener noreferrer">run ${s.actorRunId.slice(0, 10)}…</a>`
+      : '';
 
     pipelineHtml = `
       <div class="pipeline-stats">
-        <div class="pipeline-line"><strong>${s.find}</strong> found → <strong>${s.withWebsite}</strong> with website → <strong>${s.withEmails}/${s.target}</strong> with email</div>
-        <div class="pipeline-line">💰 Total <strong>$${s.costUsd.toFixed(4)}</strong> · ${s.apiCalls} API calls · ${s.iterations} iteration${s.iterations > 1 ? 's' : ''}</div>
+        <div class="pipeline-line">${sourceBadge}</div>
+        <div class="pipeline-line"><strong>${s.rawCount}</strong> places scrapées → <strong>${s.withWebsite}</strong> avec website → <strong>${s.withEmails}/${s.target}</strong> avec email</div>
+        <div class="pipeline-line">💰 Coût estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> · ${runLink}</div>
         <div class="pipeline-line">${doneBadge}</div>
-        ${traceRows ? `<details class="pipeline-trace" open><summary class="muted small">Détail par itération</summary>${traceRows}</details>` : ''}
       </div>
     `;
   }
-  els.mgGroundedMeta.innerHTML = groundedBadge + pipelineHtml;
+  els.mgGroundedMeta.innerHTML = pipelineHtml;
 
   els.mgProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {
@@ -1089,20 +1068,47 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
               )
               .join('')}</div>`
           : '<div class="prospect-emails prospect-emails-empty">✉️ aucun email trouvé sur le site</div>';
+      const socialsHtml = renderSocials(p.socials);
+      const categoryHtml = p.category
+        ? `<div class="prospect-category"><span class="tag">${escapeHtml(p.category)}</span></div>`
+        : '';
       div.innerHTML = `
         <div class="prospect-head">
           <div class="prospect-name">${escapeHtml(p.name)}</div>
           ${ratingHtml}
         </div>
         ${p.address ? `<div class="prospect-address">📍 ${escapeHtml(p.address)}</div>` : ''}
+        ${categoryHtml}
         <div class="prospect-contact">${contactBits.join('')}</div>
         ${emailsHtml}
+        ${socialsHtml}
         ${p.summary ? `<div class="prospect-summary">${escapeHtml(p.summary)}</div>` : ''}
       `;
       els.mgProspectsList.appendChild(div);
     }
   }
   els.mgProspects.classList.remove('hidden');
+}
+
+function renderSocials(s: ProspectSocials | undefined): string {
+  if (!s) return '';
+  const entries: Array<[string, string[] | undefined, string]> = [
+    ['IG', s.instagram, '📷'],
+    ['FB', s.facebook, '📘'],
+    ['LinkedIn', s.linkedin, '💼'],
+    ['TikTok', s.tiktok, '🎵'],
+    ['YT', s.youtube, '▶️'],
+    ['X', s.twitter, '𝕏'],
+  ];
+  const links: string[] = [];
+  for (const [label, arr, emoji] of entries) {
+    if (!arr || arr.length === 0) continue;
+    const url = arr[0]!;
+    links.push(
+      `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(url)}">${emoji} ${escapeHtml(label)}</a>`,
+    );
+  }
+  return links.length ? `<div class="prospect-socials">${links.join('')}</div>` : '';
 }
 
 function shortUrl(u: string): string {

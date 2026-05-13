@@ -23,6 +23,11 @@ if (!process.env.GEMINI_API_KEY) {
   console.error('GEMINI_API_KEY manquante dans .env (génération vidéo Veo 3.1)');
   process.exit(1);
 }
+if (!process.env.APIFY_TOKEN) {
+  console.warn(
+    '[warn] APIFY_TOKEN manquante dans .env — la skill fetch_maps_prospects échouera. Récupérer le token: https://console.apify.com/settings/integrations',
+  );
+}
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(ROOT, 'public')));

@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import type { BaseSkill, SkillContext } from '../BaseSkill.js';
 import {
-  fetchMapsProspects,
-  DEFAULT_MAPS_MODEL,
+  fetchProspectsFromApify,
+  APIFY_ACTOR_ID,
   type MapsProspect,
-} from '../runtime/gemini-maps.js';
+} from '../runtime/apify-maps.js';
 
 // ----- Schemas -----
 export const FetchMapsProspectsInputSchema = z.object({
@@ -14,67 +14,63 @@ export const FetchMapsProspectsInputSchema = z.object({
     .describe(
       "Requête Google Maps (ex: 'salon de coiffure', 'kinésithérapeute', 'restaurant italien'). Produit par CreateLocalBusinessSkill.",
     ),
-  city: z
-    .string()
-    .min(2)
-    .describe("Ville / zone (ex: 'Paris 11e', 'Lyon centre')."),
+  city: z.string().min(2).describe("Ville / zone (ex: 'Paris 11e', 'Lyon centre')."),
+  /** target — what we want at the end (prospects with email). */
   limit: z
     .number()
     .int()
     .min(1)
-    .max(30)
+    .max(50)
     .default(15)
-    .describe('Nombre max de prospects (1-30). Default 15.'),
-  latLng: z
-    .object({ latitude: z.number(), longitude: z.number() })
-    .optional()
-    .describe("Coordonnées optionnelles pour préciser la zone."),
+    .describe('Nombre cible de prospects (1-50). Default 15.'),
+  language: z
+    .string()
+    .min(2)
+    .max(5)
+    .default('fr')
+    .describe("Code langue Maps (default 'fr')."),
 });
 export type FetchMapsProspectsInput = z.infer<typeof FetchMapsProspectsInputSchema>;
+
+export const ProspectSocialsSchema = z.object({
+  instagram: z.array(z.string()).optional(),
+  facebook: z.array(z.string()).optional(),
+  linkedin: z.array(z.string()).optional(),
+  youtube: z.array(z.string()).optional(),
+  tiktok: z.array(z.string()).optional(),
+  twitter: z.array(z.string()).optional(),
+  pinterest: z.array(z.string()).optional(),
+});
 
 export const MapsProspectSchema = z.object({
   name: z.string(),
   address: z.string().optional(),
   phone: z.string().optional(),
+  phonesFromWebsite: z.array(z.string()).optional(),
   website: z.string().optional(),
-  /** Up to 2 emails scraped from the business website via Gemini urlContext. */
   emails: z.array(z.string()).max(2).optional(),
+  socials: ProspectSocialsSchema.optional(),
   rating: z.number().optional(),
   reviewsCount: z.number().optional(),
+  category: z.string().optional(),
   googleMapsUri: z.string().optional(),
   placeId: z.string().optional(),
   summary: z.string().optional(),
 });
 
-export const IterationTraceSchema = z.object({
-  iteration: z.number(),
-  jsonPath: z.boolean(),
-  find: z.number(),
-  withWebsite: z.number(),
-  withEmails: z.number(),
-  costMaps: z.number(),
-  costEnrich: z.number(),
-  costEmails: z.number(),
-  costTotal: z.number(),
-});
-
-export const PipelineStatsSchema = z.object({
-  find: z.number().describe('Total places trouvées par Maps Grounding (toutes itérations).'),
-  withWebsite: z.number().describe('Nb de prospects avec un website confirmé.'),
-  withEmails: z.number().describe('Nb de prospects avec au moins 1 email — limité au target.'),
+export const ApifyStatsSchema = z.object({
+  rawCount: z.number().describe('Nb de places retournées par Apify (toutes avec website).'),
+  withWebsite: z.number().describe('Nb de prospects avec website confirmé.'),
+  withEmails: z.number().describe('Nb de prospects avec au moins 1 email scrapé.'),
   target: z.number().describe("Objectif demandé par l'utilisateur."),
   done: z.boolean().describe('True si target atteint.'),
-  iterations: z.number().describe("Nb d'itérations du pipeline."),
-  apiCalls: z.number().describe('Nb total d\'appels Gemini API.'),
-  costUsd: z.number().describe('Coût estimé total en USD (tokens + grounding surcharges).'),
-  trace: z.array(IterationTraceSchema).describe('Détail par itération.'),
+  costUsdEstimate: z.number().describe('Coût estimé USD (rate card Apify Free/Starter).'),
+  actorRunId: z.string().optional().describe("ID du run Apify — visible dans console.apify.com."),
 });
 
 export const FetchMapsProspectsOutputSchema = z.object({
   prospects: z.array(MapsProspectSchema),
-  grounded: z.boolean().describe('True si la réponse a effectivement consommé Maps (et a été facturée).'),
-  stats: PipelineStatsSchema.optional(),
-  widgetContextToken: z.string().optional(),
+  stats: ApifyStatsSchema,
 });
 export type FetchMapsProspectsOutput = z.infer<typeof FetchMapsProspectsOutputSchema>;
 
@@ -84,30 +80,28 @@ export class FetchMapsProspectsSkill
 {
   public readonly name = 'fetch_maps_prospects';
   public readonly description =
-    'Récupère via Gemini + Maps Grounding les prospects locaux avec site web, puis enrichit chaque site via Gemini urlContext pour extraire jusqu\'à 2 emails de contact.';
+    'Récupère des prospects locaux via Apify Google Maps Scraper (filtre structurel has-website + Company contacts enrichment qui scrape emails + socials depuis chaque site).';
   public readonly schema = FetchMapsProspectsInputSchema;
 
   public readonly displayName = 'Fetch Maps Prospects';
   public readonly category = 'maps_grounding';
   public readonly order = 2;
   public readonly type = 'api' as const;
-  public readonly endpoint = `${DEFAULT_MAPS_MODEL} (googleMaps grounding)`;
+  public readonly endpoint = `apify:${APIFY_ACTOR_ID} (compass/google-maps-scraper)`;
 
   async execute(
     input: FetchMapsProspectsInput,
     _ctx?: SkillContext,
   ): Promise<FetchMapsProspectsOutput> {
-    const result = await fetchMapsProspects({
+    const result = await fetchProspectsFromApify({
       mapsQuery: input.mapsQuery,
       city: input.city,
-      limit: input.limit ?? 15,
-      latLng: input.latLng,
+      target: input.limit ?? 15,
+      language: input.language ?? 'fr',
     });
     return {
       prospects: result.prospects as MapsProspect[],
-      grounded: result.grounded,
       stats: result.stats,
-      widgetContextToken: result.widgetContextToken,
     };
   }
 }
