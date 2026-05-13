@@ -245,6 +245,31 @@ const els = {
   prPrimaryStrategy: $('prPrimaryStrategy'),
   prChannels: $('prChannels'),
   prFirstWeek: $('prFirstWeek'),
+  // maps grounding panel
+  mgLang: $<HTMLSelectElement>('mgLang'),
+  mgCity: $<HTMLSelectElement>('mgCity'),
+  mgLimit: $<HTMLSelectElement>('mgLimit'),
+  mgRandomBtn: $<HTMLButtonElement>('mgRandomBtn'),
+  mgFetchBtn: $<HTMLButtonElement>('mgFetchBtn'),
+  mgBusinessCard: $('mgBusinessCard'),
+  mgProspectsCard: $('mgProspectsCard'),
+  mgName: $('mgName'),
+  mgType: $('mgType'),
+  mgTicket: $('mgTicket'),
+  mgPitch: $('mgPitch'),
+  mgSegment: $('mgSegment'),
+  mgMapsQuery: $('mgMapsQuery'),
+  mgCityTarget: $('mgCityTarget'),
+  mgSize: $('mgSize'),
+  mgPain: $('mgPain'),
+  mgFetchStatus: $('mgFetchStatus'),
+  mgStatusText: $('mgStatusText'),
+  mgElapsed: $('mgElapsed'),
+  mgProspects: $('mgProspects'),
+  mgProspectsCount: $('mgProspectsCount'),
+  mgGroundedMeta: $('mgGroundedMeta'),
+  mgProspectsList: $('mgProspectsList'),
+  mgEmailHint: $('mgEmailHint'),
 };
 
 // ---------- State ----------
@@ -309,6 +334,39 @@ interface ProspectionStrategy {
 }
 let currentProspectBusiness: ProspectableBusiness | null = null;
 let prElapsedTimer: number | null = null;
+
+// Maps Grounding state
+interface LocalBusiness {
+  name: string;
+  type: string;
+  pitch: string;
+  icp: {
+    segment: string;
+    mapsQuery: string;
+    city: string;
+    sizeRange: string;
+    pain: string;
+    estimatedTicket: string;
+  };
+}
+interface MapsProspect {
+  name: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  rating?: number;
+  reviewsCount?: number;
+  googleMapsUri?: string;
+  placeId?: string;
+  summary?: string;
+}
+interface FetchMapsProspectsOutput {
+  prospects: MapsProspect[];
+  grounded: boolean;
+  widgetContextToken?: string;
+}
+let currentLocalBusiness: LocalBusiness | null = null;
+let mgElapsedTimer: number | null = null;
 
 // ---------- API ----------
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -830,6 +888,161 @@ function renderProspectionStrategy(strategy: ProspectionStrategy) {
   els.prStrategy.classList.remove('hidden');
 }
 
+// ---------- Maps Grounding pipeline ----------
+function resetMapsProspectsCard() {
+  if (mgElapsedTimer !== null) { clearInterval(mgElapsedTimer); mgElapsedTimer = null; }
+  els.mgProspectsCard.classList.add('hidden');
+  els.mgProspects.classList.add('hidden');
+  els.mgFetchStatus.classList.remove('hidden');
+  els.mgProspectsList.innerHTML = '';
+  els.mgGroundedMeta.innerHTML = '';
+}
+
+async function mapsGroundingRandomBusiness() {
+  clearError();
+  resetMapsProspectsCard();
+  resetSkillsStatus();
+  currentLocalBusiness = null;
+  els.mgBusinessCard.classList.add('hidden');
+  els.mgFetchBtn.disabled = true;
+  els.mgRandomBtn.disabled = true;
+  const original = els.mgRandomBtn.textContent;
+  els.mgRandomBtn.textContent = '⏳ Génération…';
+
+  try {
+    const language = els.mgLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const defaultCity = els.mgCity.value;
+
+    currentLocalBusiness = await runSkill<
+      { defaultCity: string; languageName: string },
+      LocalBusiness
+    >('create_local_business', { defaultCity, languageName });
+
+    els.mgName.textContent = currentLocalBusiness.name;
+    els.mgType.textContent = currentLocalBusiness.type;
+    els.mgTicket.textContent = currentLocalBusiness.icp.estimatedTicket;
+    els.mgPitch.textContent = currentLocalBusiness.pitch;
+    els.mgSegment.textContent = currentLocalBusiness.icp.segment;
+    els.mgMapsQuery.textContent = currentLocalBusiness.icp.mapsQuery;
+    els.mgCityTarget.textContent = currentLocalBusiness.icp.city;
+    els.mgSize.textContent = currentLocalBusiness.icp.sizeRange;
+    els.mgPain.textContent = currentLocalBusiness.icp.pain;
+    els.mgBusinessCard.classList.remove('hidden');
+    els.mgFetchBtn.disabled = false;
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.mgRandomBtn.disabled = false;
+    els.mgRandomBtn.textContent = original;
+  }
+}
+
+async function mapsGroundingFetchProspects() {
+  if (!currentLocalBusiness) return;
+  clearError();
+  resetMapsProspectsCard();
+  els.mgProspectsCard.classList.remove('hidden');
+  els.mgFetchBtn.disabled = true;
+  const startedAt = Date.now();
+
+  mgElapsedTimer = window.setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    els.mgElapsed.textContent = `(${elapsed}s)`;
+    els.mgStatusText.textContent =
+      elapsed < 8 ? 'Interrogation de Google Maps via Gemini…'
+      : elapsed < 20 ? 'Récupération des détails (téléphone, site web)…'
+      : 'Finalisation…';
+  }, 1000);
+
+  try {
+    setSkillStatus('fetch_maps_prospects', 'running');
+    const limit = Number(els.mgLimit.value) || 15;
+    // Override city from the panel control (user can pick a different one than the LLM's suggestion).
+    const city = els.mgCity.value || currentLocalBusiness.icp.city;
+    const out = await runSkill<
+      { mapsQuery: string; city: string; limit: number },
+      FetchMapsProspectsOutput
+    >('fetch_maps_prospects', {
+      mapsQuery: currentLocalBusiness.icp.mapsQuery,
+      city,
+      limit,
+    });
+    setSkillStatus('fetch_maps_prospects', 'done');
+    renderMapsProspects(out);
+  } catch (e) {
+    setSkillStatus('fetch_maps_prospects', 'failed');
+    showError((e as Error).message);
+  } finally {
+    if (mgElapsedTimer !== null) { clearInterval(mgElapsedTimer); mgElapsedTimer = null; }
+    els.mgFetchStatus.classList.add('hidden');
+    els.mgFetchBtn.disabled = false;
+  }
+}
+
+function renderMapsProspects(out: FetchMapsProspectsOutput) {
+  els.mgProspectsCount.textContent = `(${out.prospects.length})`;
+  const groundedBadge = out.grounded
+    ? '<span class="grounded-badge">Maps grounded</span>'
+    : '<span class="muted">⚠️ Réponse non grounded sur Maps</span>';
+  els.mgGroundedMeta.innerHTML = groundedBadge;
+
+  els.mgProspectsList.innerHTML = '';
+  if (out.prospects.length === 0) {
+    els.mgProspectsList.innerHTML = '<p class="muted">Aucun prospect retourné.</p>';
+  } else {
+    for (const p of out.prospects) {
+      const div = document.createElement('div');
+      div.className = 'prospect';
+      const ratingHtml = p.rating
+        ? `<div class="prospect-rating"><span class="rating-star">★</span> ${p.rating.toFixed(1)}${
+            p.reviewsCount ? ` (${p.reviewsCount})` : ''
+          }</div>`
+        : '';
+      const contactBits: string[] = [];
+      if (p.phone) {
+        contactBits.push(
+          `📞 <a href="tel:${escapeAttr(p.phone)}">${escapeHtml(p.phone)}</a>`,
+        );
+      } else {
+        contactBits.push('<span class="prospect-empty">tél inconnu</span>');
+      }
+      if (p.website) {
+        contactBits.push(
+          `🌐 <a href="${escapeAttr(p.website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortUrl(p.website))}</a>`,
+        );
+      } else {
+        contactBits.push('<span class="prospect-empty">site inconnu</span>');
+      }
+      if (p.googleMapsUri) {
+        contactBits.push(
+          `🗺 <a href="${escapeAttr(p.googleMapsUri)}" target="_blank" rel="noopener noreferrer">Maps</a>`,
+        );
+      }
+      div.innerHTML = `
+        <div class="prospect-head">
+          <div class="prospect-name">${escapeHtml(p.name)}</div>
+          ${ratingHtml}
+        </div>
+        ${p.address ? `<div class="prospect-address">📍 ${escapeHtml(p.address)}</div>` : ''}
+        <div class="prospect-contact">${contactBits.join('')}</div>
+        ${p.summary ? `<div class="prospect-summary">${escapeHtml(p.summary)}</div>` : ''}
+      `;
+      els.mgProspectsList.appendChild(div);
+    }
+  }
+  els.mgProspects.classList.remove('hidden');
+}
+
+function shortUrl(u: string): string {
+  try {
+    const url = new URL(u);
+    return url.host.replace(/^www\./, '') + (url.pathname === '/' ? '' : url.pathname);
+  } catch {
+    return u;
+  }
+}
+
 // ---------- Wiring ----------
 els.ugcRandomBtn.addEventListener('click', ugcGenerateIdea);
 els.ugcGenVideoBtn.addEventListener('click', ugcGenerateVideo);
@@ -837,5 +1050,7 @@ els.nlRandomBtn.addEventListener('click', newsletterPickTopic);
 els.nlGenBtn.addEventListener('click', newsletterGenerateEdition);
 els.prRandomBtn.addEventListener('click', prospectionRandomBusiness);
 els.prStrategyBtn.addEventListener('click', prospectionGenerateStrategy);
+els.mgRandomBtn.addEventListener('click', mapsGroundingRandomBusiness);
+els.mgFetchBtn.addEventListener('click', mapsGroundingFetchProspects);
 
 init().catch((e) => showError((e as Error).message));

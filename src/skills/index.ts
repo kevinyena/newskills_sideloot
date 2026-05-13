@@ -20,6 +20,8 @@ import { PickNewsletterTopicSkill } from './newsletter/PickNewsletterTopicSkill.
 import { GenerateNewsletterSkill } from './newsletter/GenerateNewsletterSkill.js';
 import { CreateProspectableBusinessSkill } from './prospection/CreateProspectableBusinessSkill.js';
 import { ChooseProspectionSkill } from './prospection/ChooseProspectionSkill.js';
+import { CreateLocalBusinessSkill } from './maps_grounding/CreateLocalBusinessSkill.js';
+import { FetchMapsProspectsSkill } from './maps_grounding/FetchMapsProspectsSkill.js';
 
 export { type BaseSkill, type SkillContext, type SkillType } from './BaseSkill.js';
 export { renderTemplate } from './runtime/render.js';
@@ -33,6 +35,8 @@ export {
   GenerateNewsletterSkill,
   CreateProspectableBusinessSkill,
   ChooseProspectionSkill,
+  CreateLocalBusinessSkill,
+  FetchMapsProspectsSkill,
 };
 
 /** All registered skills. New skills: import + add here. */
@@ -45,6 +49,8 @@ export const ALL_SKILLS: ReadonlyArray<BaseSkill> = [
   new GenerateNewsletterSkill(),
   new CreateProspectableBusinessSkill(),
   new ChooseProspectionSkill(),
+  new CreateLocalBusinessSkill(),
+  new FetchMapsProspectsSkill(),
 ];
 
 /** Look up a skill by its technical `name`. */
@@ -110,6 +116,7 @@ const CATEGORY_DISPLAY: Record<string, { name: string; icon: string; order: numb
   video_ugc: { name: 'Video UGC', icon: '🎬', order: 1 },
   newsletter: { name: 'Newsletter', icon: '📨', order: 2 },
   prospection: { name: 'Choose Prospection', icon: '🎯', order: 3 },
+  maps_grounding: { name: 'Maps Grounding', icon: '🗺️', order: 4 },
 };
 
 function defaultDisplay(category: string, fallbackOrder: number) {

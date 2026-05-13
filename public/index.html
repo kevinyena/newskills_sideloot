@@ -246,6 +246,91 @@
       </div>
     </section>
 
+    <!-- =========== Panel: Maps Grounding =========== -->
+    <section class="skill-panel hidden" data-panel="maps_grounding">
+      <div class="controls">
+        <label class="field">
+          <span>Langue</span>
+          <select id="mgLang">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Ville de prospection</span>
+          <select id="mgCity">
+            <option value="Paris">Paris</option>
+            <option value="Paris 11e">Paris 11e</option>
+            <option value="Lyon">Lyon</option>
+            <option value="Marseille">Marseille</option>
+            <option value="Bordeaux">Bordeaux</option>
+            <option value="Toulouse">Toulouse</option>
+            <option value="Lille">Lille</option>
+            <option value="Nantes">Nantes</option>
+            <option value="Nice">Nice</option>
+            <option value="Strasbourg">Strasbourg</option>
+            <option value="Montpellier">Montpellier</option>
+            <option value="Rennes">Rennes</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Nb prospects</span>
+          <select id="mgLimit">
+            <option value="10">10</option>
+            <option value="15" selected>15</option>
+            <option value="20">20</option>
+            <option value="25">25</option>
+            <option value="30">30</option>
+          </select>
+        </label>
+        <button id="mgRandomBtn" class="btn primary">🎲 Random local business</button>
+        <button id="mgFetchBtn" class="btn primary" disabled>🗺️ Fetch prospects</button>
+      </div>
+
+      <div id="mgBusinessCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Business local</div>
+          <h2 id="mgName"></h2>
+          <div class="meta">
+            <span class="tag" id="mgType"></span>
+            <span class="tag" id="mgTicket"></span>
+          </div>
+          <p id="mgPitch" class="muted"></p>
+        </div>
+        <div class="card-section">
+          <div class="kicker">ICP — Google Maps targetable</div>
+          <div class="script-field"><span class="lbl">Segment</span><p id="mgSegment"></p></div>
+          <div class="script-field">
+            <span class="lbl">Maps query</span>
+            <p id="mgMapsQuery" class="spoken"></p>
+          </div>
+          <div class="script-field"><span class="lbl">Ville cible</span><p id="mgCityTarget" class="muted"></p></div>
+          <div class="script-field"><span class="lbl">Taille typique</span><p id="mgSize" class="muted"></p></div>
+          <div class="script-field"><span class="lbl">Pain</span><p id="mgPain"></p></div>
+        </div>
+      </div>
+
+      <div id="mgProspectsCard" class="card hidden">
+        <div id="mgFetchStatus" class="status">
+          <div class="spinner"></div>
+          <span id="mgStatusText">Interrogation de Google Maps via Gemini…</span>
+          <span id="mgElapsed" class="muted"></span>
+        </div>
+        <div id="mgProspects" class="prospects hidden">
+          <div class="prospects-header">
+            <div class="kicker">Prospects trouvés <span id="mgProspectsCount" class="muted small"></span></div>
+            <div class="prospects-meta muted small" id="mgGroundedMeta"></div>
+          </div>
+          <div id="mgProspectsList" class="prospects-list"></div>
+          <p class="muted hint" id="mgEmailHint">💡 Les emails ne sont pas exposés via Maps Grounding. Pour les récupérer : scrape le site web de chaque prospect avec Hunter.io / Apify website-content-crawler.</p>
+        </div>
+      </div>
+    </section>
+
     <div id="errorBox" class="error hidden"></div>
   </main>
 
