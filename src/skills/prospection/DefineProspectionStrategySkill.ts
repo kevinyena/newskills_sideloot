@@ -5,6 +5,14 @@ import { renderTemplate } from '../runtime/render.js';
 import { newSeed } from '../runtime/seed.js';
 import { ProspectableBusinessSchema } from './CreateProspectableBusinessSkill.js';
 
+// ----- Channel catalog (strict — strategy chooses ONLY among these 3) -----
+export const PROSPECTION_CHANNELS = [
+  'Email from LinkedIn (via Apify)',
+  'X DM reachout',
+  'Email via business website (Google Maps data)',
+] as const;
+export type ProspectionChannelName = (typeof PROSPECTION_CHANNELS)[number];
+
 // ----- Schemas -----
 export const DefineProspectionStrategyInputSchema = z.object({
   business: ProspectableBusinessSchema.describe(
@@ -18,88 +26,100 @@ export type DefineProspectionStrategyInput = z.infer<
 
 export const ProspectionChannelSchema = z.object({
   name: z
-    .string()
-    .describe(
-      "Nom court du canal (ex: 'LinkedIn outreach', 'Email via business maps', 'Cold call', 'Forums Discord/Slack'…)",
-    ),
+    .enum(PROSPECTION_CHANNELS)
+    .describe('Doit être un des 3 canaux autorisés. Aucun autre nom accepté.'),
   percentage: z
     .number()
     .min(0)
     .max(100)
-    .describe('Pourcentage d\'effort à allouer (somme totale = 100).'),
+    .describe('Pourcentage alloué (0 si non pertinent pour cet ICP). Somme totale = 100.'),
   rationale: z
     .string()
-    .describe('Pourquoi ce canal pour cet ICP précis (concret, pas générique).'),
+    .describe(
+      'Pourquoi ce % pour cet ICP précis. Si 0%, dis CONCRÈTEMENT pourquoi le canal ne marche pas.',
+    ),
   tooling: z
     .string()
     .optional()
     .describe(
-      "Outils recommandés (ex: 'Sales Navigator + Lemlist', 'Phantombuster + Hunter.io + Instantly', 'Outscraper Google Maps + Lemlist').",
+      'Outils précis recommandés pour activer ce canal (ex: Apify actor + Hunter + Lemlist).',
     ),
   icpFit: z
     .string()
-    .describe("Pourquoi cet ICP est accessible via ce canal (visibilité, scrappabilité, etc.)."),
+    .describe('Pourquoi cet ICP est (ou pas) accessible via ce canal.'),
 });
 
-export const ProspectionStrategySchema = z.object({
-  primaryStrategy: z
-    .string()
-    .describe('1 paragraphe résumant la stratégie globale dans la langue cible.'),
-  channels: z
-    .array(ProspectionChannelSchema)
-    .min(1)
-    .max(5)
-    .describe(
-      'Mix de canaux (max 5, focus > spread). Somme des percentages = 100. Une chaîne dominante (40-70%).',
-    ),
-  firstWeek: z
-    .string()
-    .describe('Plan concret de la 1ère semaine pour démarrer (dans la langue cible).'),
-});
+export const ProspectionStrategySchema = z
+  .object({
+    primaryStrategy: z
+      .string()
+      .describe('1 paragraphe résumant la stratégie globale dans la langue cible.'),
+    channels: z
+      .array(ProspectionChannelSchema)
+      .length(3)
+      .describe(
+        'Exactement 3 entrées — une par canal autorisé, dans cet ordre fixe : ' +
+          PROSPECTION_CHANNELS.join(' / ') +
+          '. Somme des percentages = 100.',
+      ),
+    firstWeek: z
+      .string()
+      .describe('Plan concret de la 1ère semaine pour démarrer (dans la langue cible).'),
+  })
+  .refine(
+    (s) => new Set(s.channels.map((c) => c.name)).size === 3,
+    { message: 'Chaque canal doit apparaître exactement 1 fois.' },
+  );
 export type ProspectionStrategy = z.infer<typeof ProspectionStrategySchema>;
 
 // ----- Prompt -----
 const PROMPT = `# RÔLE
-Tu es head of growth d'un studio outbound. Tu connais toutes les chaînes de prospection et tu sais EXACTEMENT laquelle marche pour quel type d'ICP. Tu ne fais jamais de "spray and pray" — toujours une chaîne dominante et 1-2 chaînes complémentaires.
+Tu es head of growth d'un studio outbound. Tu ne fais jamais de "spray and pray" — tu arbitres entre **3 canaux UNIQUEMENT** en fonction de l'ICP. Tu sais lequel marche pour quel ICP, et tu n'as pas peur de mettre 0% sur un canal qui ne fitte pas.
 
-# CHAÎNES DE PROSPECTION (référence)
-- **LinkedIn outreach** (DMs/InMails ciblés) → bon pour : titres précis (CMO, Head of X), profils tech/cadres avec présence LinkedIn. Inadapté pour : commerçants locaux qui n'ouvrent pas LinkedIn.
-- **Email via LinkedIn enrichment** (Sales Navigator → Apollo/Hunter/Lusha → cold email) → bon pour : B2B SaaS/agence avec ICP "titre + secteur + taille". Volume + scaling.
-- **Email via business maps** (scraping Google Maps + Outscraper → enrichment téléphone/email → cold) → **LE canal pour business locaux** : coiffeurs, restos, plombiers, kinés, mécaniciens, opticiens, gyms, etc.
-- **Cold call** → bon pour : décideurs PME locale, ticket > 1000€, secteurs traditionnels (immo, B2B services).
-- **Reddit/Twitter/X DMs** → bon pour : communautés tech, créateurs solo, niches passionnées (gaming, crypto, dev).
-- **Forums spécialisés** (Discord/Slack/PMA, fr.indiehackers, etc.) → bon pour : B2B avec audience captive (e-commerce ops, fintech, dev tools).
-- **TikTok/Reels paid ads + DMs entrants** → bon pour : B2C, créateurs, ou ICP très jeune.
-- **Display retargeting + SEO** → toujours complément, jamais dominant pour 0→100 clients.
-- **Partenariats / referrals** → bon pour : ticket premium, services à expertise (consulting, devs senior, design).
+# CANAUX AUTORISÉS (UNIQUEMENT CES 3, AUCUN AUTRE)
+
+## 1. Email from LinkedIn (via Apify)
+**Comment** : Apify actor de scraping LinkedIn (filtre par titre + secteur + taille + géo) → export CSV des profils → enrichissement email via Hunter.io / Apollo / Dropcontact / Lusha → cold email via Lemlist / Instantly / Smartlead.
+**Marche pour** : ICP B2B avec **titre de poste précis** présent sur LinkedIn (CMO de SaaS, Head of Sales en série B, founder DTC, agency owner, RH Manager PME…). Volume scalable (500-2000 contacts/semaine).
+**Ne marche pas pour** : commerçants locaux qui ne sont pas sur LinkedIn (coiffeurs, restos, mécaniciens…). Créateurs/founders très early qui mettent leur côté pro sur X plutôt que LinkedIn.
+
+## 2. X DM reachout
+**Comment** : Recherche X par bio/keyword + filtres followers/engagement → DM personnalisé manuel ou semi-auto (Tweet Hunter, TypeFully) → relances limitées (X bride les DMs > 3-4/jour pour comptes sans Premium).
+**Marche pour** : **créateurs solo, indie hackers, founders early-stage, profils tech / dev / crypto / IA actifs sur X**. Audience qui répond elle-même (pas d'assistant). Ticket plutôt bas mais conversion DM>email pour ces profils.
+**Ne marche pas pour** : décideurs corporate (rarement sur X). Commerçants locaux. Volume faible vs email/LinkedIn.
+
+## 3. Email via business website (Google Maps data)
+**Comment** : Outscraper / Phantombuster → scraping Google Maps (requête métier + ville → liste de business avec site web + tel) → crawl du site (Hunter Email Finder, Apify website-content-crawler) pour extraire l'email contact / gérant → cold email via Lemlist / Instantly.
+**Marche pour** : **business locaux/physiques avec site web** (coiffeurs, restos, gyms, kinés, plombiers, mécaniciens, opticiens, dentistes, agences immo, magasins indé, hôtels). Le gérant lit son email "contact@".
+**Ne marche pas pour** : SaaS / agences pures en ligne sans présence Maps. Décideurs corporate (l'email contact@ tombe sur un assistant).
 
 # MISSION
-Étant donné le business + ICP fournis, propose un **mix de 2 à 4 canaux** dont la **somme = 100%**, avec UNE chaîne dominante (40-70%) et 1-3 chaînes complémentaires.
+Pour le business + ICP fournis, alloue **les % entre EXACTEMENT ces 3 canaux** (dans cet ordre fixe). **Tu DOIS retourner les 3 entrées**, même si l'allocation est 0%.
+
+# RÈGLES D'ARBITRAGE
+- ICP = business local avec site (gym, salon, resto…) → canal **3** dominant (60-100%)
+- ICP = cadre/décideur B2B avec titre LinkedIn → canal **1** dominant (60-100%)
+- ICP = créateur/indie hacker/dev/founder early actif sur X → canal **2** dominant (40-70%), souvent combiné avec canal 1
+- Si un canal ne fitte pas du tout → mets 0% et explique POURQUOI dans \`rationale\`
+- **Une chaîne doit toujours être clairement dominante** (pas 34/33/33)
 
 # VARIANCE
 Random seed : {{seed}}
-À deux seeds différents pour le même business, **varie l'arbitrage** des canaux secondaires (mais pas le canal dominant si l'ICP est évident — un coiffeur reste prospecté en Google Maps en priorité).
-
-# CONTRAINTES
-- Max 4 canaux (focus > spread)
-- Somme exacte = 100
-- Pas de 25/25/25/25 → toujours une chaîne dominante claire
-- **Rationale concrète et spécifique à l'ICP** (pas "LinkedIn marche bien")
-- Mentionne les outils précis dans \`tooling\` (Lemlist, Instantly, Outscraper, Sales Navigator, Lusha, Apollo, Phantombuster, etc.)
+Le seed influence l'arbitrage des canaux **secondaires** seulement (le dominant reste évident). Varie le mix secondaire entre 2 seeds, pas l'ordre des priorités.
 
 # INPUT
 - Business : {{business}}
 - Langue : {{languageName}}
 
-# OUTPUT (JSON strict)
+# OUTPUT (JSON strict, EXACTEMENT 3 entrées channels dans l'ordre du catalogue)
 {
   "primaryStrategy": "1 paragraphe synthèse en {{languageName}}",
   "channels": [
-    { "name": "...", "percentage": 60, "rationale": "...", "tooling": "...", "icpFit": "..." },
-    { "name": "...", "percentage": 30, "rationale": "...", "tooling": "...", "icpFit": "..." },
-    { "name": "...", "percentage": 10, "rationale": "...", "icpFit": "..." }
+    { "name": "Email from LinkedIn (via Apify)", "percentage": ..., "rationale": "...", "tooling": "...", "icpFit": "..." },
+    { "name": "X DM reachout", "percentage": ..., "rationale": "...", "tooling": "...", "icpFit": "..." },
+    { "name": "Email via business website (Google Maps data)", "percentage": ..., "rationale": "...", "tooling": "...", "icpFit": "..." }
   ],
-  "firstWeek": "Plan concret de la 1ère semaine pour démarrer (en {{languageName}})"
+  "firstWeek": "Plan concret de la 1ère semaine (en {{languageName}})"
 }
 `;
 
@@ -109,7 +129,7 @@ export class DefineProspectionStrategySkill
 {
   public readonly name = 'define_prospection_strategy';
   public readonly description =
-    'Définit le mix de canaux de prospection (LinkedIn / business maps / cold call / forums…) avec pourcentages, outils, et plan de 1ère semaine.';
+    'Alloue les % entre 3 canaux figés : email LinkedIn (Apify) / X DM / email via Google Maps. Mix adapté à l\'ICP, somme = 100, peut mettre 0% sur un canal non pertinent.';
   public readonly schema = DefineProspectionStrategyInputSchema;
 
   public readonly displayName = 'Define Prospection Strategy';
@@ -134,22 +154,37 @@ export class DefineProspectionStrategySkill
       schema: ProspectionStrategySchema,
       effort: 'high',
     });
-    // Defensive: normalize percentages to sum to 100 if Claude drifted slightly.
-    return normalizePercentages(out);
+    // Defensive: enforce canonical channel order + normalize percentages to sum to 100.
+    return normalize(out);
   }
 }
 
-function normalizePercentages(strategy: ProspectionStrategy): ProspectionStrategy {
-  const sum = strategy.channels.reduce((acc, c) => acc + c.percentage, 0);
-  if (sum === 0 || sum === 100) return strategy;
-  const scaled = strategy.channels.map((c) => ({
-    ...c,
-    percentage: Math.round((c.percentage / sum) * 100),
-  }));
-  // Fix rounding drift on the first (dominant) channel.
-  const newSum = scaled.reduce((a, c) => a + c.percentage, 0);
-  if (scaled.length > 0 && newSum !== 100 && scaled[0]) {
-    scaled[0].percentage += 100 - newSum;
+function normalize(strategy: ProspectionStrategy): ProspectionStrategy {
+  // Reorder channels to match the canonical catalog order.
+  const byName = new Map(strategy.channels.map((c) => [c.name, c] as const));
+  const ordered = PROSPECTION_CHANNELS.map((n) => byName.get(n)).filter(
+    (c): c is ProspectionStrategy['channels'][number] => Boolean(c),
+  );
+
+  // Normalize percentages to sum to 100 (defensive against Claude drift).
+  const sum = ordered.reduce((acc, c) => acc + c.percentage, 0);
+  let scaled = ordered;
+  if (sum > 0 && sum !== 100) {
+    scaled = ordered.map((c) => ({
+      ...c,
+      percentage: Math.round((c.percentage / sum) * 100),
+    }));
+    const newSum = scaled.reduce((a, c) => a + c.percentage, 0);
+    if (newSum !== 100 && scaled.length > 0) {
+      // Absorb rounding drift into the largest-percentage channel.
+      const idx = scaled.reduce(
+        (best, c, i) => (c.percentage > (scaled[best]?.percentage ?? 0) ? i : best),
+        0,
+      );
+      const target = scaled[idx];
+      if (target) target.percentage += 100 - newSum;
+    }
   }
+
   return { ...strategy, channels: scaled };
 }
