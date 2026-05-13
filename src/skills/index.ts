@@ -19,7 +19,7 @@ import { GenerateVeoVideoSkill } from './video_ugc/GenerateVeoVideoSkill.js';
 import { PickNewsletterTopicSkill } from './newsletter/PickNewsletterTopicSkill.js';
 import { GenerateNewsletterSkill } from './newsletter/GenerateNewsletterSkill.js';
 import { CreateProspectableBusinessSkill } from './prospection/CreateProspectableBusinessSkill.js';
-import { DefineProspectionStrategySkill } from './prospection/DefineProspectionStrategySkill.js';
+import { ChooseProspectionSkill } from './prospection/ChooseProspectionSkill.js';
 
 export { type BaseSkill, type SkillContext, type SkillType } from './BaseSkill.js';
 export { renderTemplate } from './runtime/render.js';
@@ -32,7 +32,7 @@ export {
   PickNewsletterTopicSkill,
   GenerateNewsletterSkill,
   CreateProspectableBusinessSkill,
-  DefineProspectionStrategySkill,
+  ChooseProspectionSkill,
 };
 
 /** All registered skills. New skills: import + add here. */
@@ -44,7 +44,7 @@ export const ALL_SKILLS: ReadonlyArray<BaseSkill> = [
   new PickNewsletterTopicSkill(),
   new GenerateNewsletterSkill(),
   new CreateProspectableBusinessSkill(),
-  new DefineProspectionStrategySkill(),
+  new ChooseProspectionSkill(),
 ];
 
 /** Look up a skill by its technical `name`. */

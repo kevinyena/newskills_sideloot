@@ -14,14 +14,14 @@ export const PROSPECTION_CHANNELS = [
 export type ProspectionChannelName = (typeof PROSPECTION_CHANNELS)[number];
 
 // ----- Schemas -----
-export const DefineProspectionStrategyInputSchema = z.object({
+export const ChooseProspectionInputSchema = z.object({
   business: ProspectableBusinessSchema.describe(
     'Business + ICP produits par CreateProspectableBusinessSkill.',
   ),
   languageName: z.string().describe("Langue de la stratégie — e.g. 'français'."),
 });
-export type DefineProspectionStrategyInput = z.infer<
-  typeof DefineProspectionStrategyInputSchema
+export type ChooseProspectionInput = z.infer<
+  typeof ChooseProspectionInputSchema
 >;
 
 export const ProspectionChannelSchema = z.object({
@@ -124,15 +124,15 @@ Le seed influence l'arbitrage des canaux **secondaires** seulement (le dominant 
 `;
 
 // ----- Skill -----
-export class DefineProspectionStrategySkill
-  implements BaseSkill<DefineProspectionStrategyInput, ProspectionStrategy>
+export class ChooseProspectionSkill
+  implements BaseSkill<ChooseProspectionInput, ProspectionStrategy>
 {
-  public readonly name = 'define_prospection_strategy';
+  public readonly name = 'choose_prospection';
   public readonly description =
     'Alloue les % entre 3 canaux figés : email LinkedIn (Apify) / X DM / email via Google Maps. Mix adapté à l\'ICP, somme = 100, peut mettre 0% sur un canal non pertinent.';
-  public readonly schema = DefineProspectionStrategyInputSchema;
+  public readonly schema = ChooseProspectionInputSchema;
 
-  public readonly displayName = 'Define Prospection Strategy';
+  public readonly displayName = 'Choose Prospection';
   public readonly category = 'prospection';
   public readonly order = 2;
   public readonly type = 'llm' as const;
@@ -140,7 +140,7 @@ export class DefineProspectionStrategySkill
   public readonly prompt = PROMPT;
 
   async execute(
-    input: DefineProspectionStrategyInput,
+    input: ChooseProspectionInput,
     _ctx?: SkillContext,
   ): Promise<ProspectionStrategy> {
     const seed = newSeed();

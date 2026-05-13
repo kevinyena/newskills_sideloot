@@ -781,17 +781,17 @@ async function prospectionGenerateStrategy() {
   }, 1000);
 
   try {
-    setSkillStatus('define_prospection_strategy', 'running');
+    setSkillStatus('choose_prospection', 'running');
     const language = els.prLang.value as Language;
     const languageName = LANG_NAMES[language];
     const strategy = await runSkill<
       { business: ProspectableBusiness; languageName: string },
       ProspectionStrategy
-    >('define_prospection_strategy', { business: currentProspectBusiness, languageName });
-    setSkillStatus('define_prospection_strategy', 'done');
+    >('choose_prospection', { business: currentProspectBusiness, languageName });
+    setSkillStatus('choose_prospection', 'done');
     renderProspectionStrategy(strategy);
   } catch (e) {
-    setSkillStatus('define_prospection_strategy', 'failed');
+    setSkillStatus('choose_prospection', 'failed');
     showError((e as Error).message);
   } finally {
     if (prElapsedTimer !== null) { clearInterval(prElapsedTimer); prElapsedTimer = null; }
