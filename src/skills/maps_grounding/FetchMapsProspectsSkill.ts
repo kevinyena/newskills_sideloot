@@ -65,6 +65,7 @@ export const ApifyStatsSchema = z.object({
   target: z.number().describe("Objectif demandé par l'utilisateur."),
   done: z.boolean().describe('True si target atteint.'),
   costUsdEstimate: z.number().describe('Coût estimé USD (rate card Apify Free/Starter).'),
+  costUsdActual: z.number().optional().describe('Coût réel facturé par Apify (run.usageTotalUsd).'),
   actorRunId: z.string().optional().describe("ID du run Apify — visible dans console.apify.com."),
 });
 

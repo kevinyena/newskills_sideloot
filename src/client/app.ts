@@ -380,6 +380,7 @@ interface ApifyStats {
   target: number;
   done: boolean;
   costUsdEstimate: number;
+  costUsdActual?: number;
   actorRunId?: string;
 }
 interface FetchMapsProspectsOutput {
@@ -1022,7 +1023,11 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
       <div class="pipeline-stats">
         <div class="pipeline-line">${sourceBadge}</div>
         <div class="pipeline-line"><strong>${s.rawCount}</strong> places scrapées → <strong>${s.withWebsite}</strong> avec website → <strong>${s.withEmails}/${s.target}</strong> avec email</div>
-        <div class="pipeline-line">💰 Coût estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> · ${runLink}</div>
+        <div class="pipeline-line">${
+          s.costUsdActual !== undefined
+            ? `💰 Coût réel Apify <strong>$${s.costUsdActual.toFixed(4)}</strong> <span class="muted">(estimé $${s.costUsdEstimate.toFixed(4)})</span>`
+            : `💰 Coût estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong>`
+        } · ${runLink}</div>
         <div class="pipeline-line">${doneBadge}</div>
       </div>
     `;

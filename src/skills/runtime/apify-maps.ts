@@ -82,9 +82,11 @@ export interface ApifyMapsStats {
   target: number;
   /** True iff withEmails >= target. */
   done: boolean;
-  /** Estimated cost in USD based on rate card. Actual invoice may differ. */
+  /** Estimated cost in USD based on rate card. */
   costUsdEstimate: number;
-  /** Apify run ID — for cross-checking the actual cost in console.apify.com. */
+  /** Actual cost reported by Apify (`run.usageTotalUsd`). May be undefined if billing not surfaced yet. */
+  costUsdActual?: number;
+  /** Apify run ID — link to console.apify.com/actors/runs/{id}. */
   actorRunId?: string;
 }
 
@@ -163,8 +165,9 @@ export async function fetchProspectsFromApify(
 ): Promise<FetchProspectsResult> {
   const target = params.target;
   // Over-fetch to absorb places whose website has no scrapable email.
-  // Capped at 75 to keep run time under Apify's sync 5-min timeout.
-  const maxPlaces = Math.min(75, Math.max(target * 3, 30));
+  // Empirically ~30% of places yield an email via Apify's contacts enrichment,
+  // so we ask for ~5x the target. Capped at 80 to keep the actor run under 5 min.
+  const maxPlaces = Math.min(80, Math.max(target * 5, 30));
 
   const input = {
     searchStringsArray: [params.mapsQuery],
@@ -183,27 +186,27 @@ export async function fetchProspectsFromApify(
     maxQuestions: 0,
   };
 
-  // Synchronous run + inline dataset items.
-  // Long-running operations on sync endpoints can take up to 5 minutes; the
-  // Apify side handles the wait, so a plain fetch works.
-  const url = `${APIFY_BASE}/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items?token=${encodeURIComponent(
-    apifyToken(),
-  )}`;
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  if (!r.ok) throw new Error(`Apify ${r.status}: ${await r.text()}`);
+  // Async pattern — way more robust than run-sync for >30s actor runs.
+  // The sync endpoint holds an HTTP connection open for the whole run, which
+  // Node's undici fetch can drop on `headersTimeout` (defaults vary by Node
+  // version). Async = 3 short HTTP calls instead of one 1-3min open connection.
+  //
+  // 1. Start the run                  POST /acts/{id}/runs
+  // 2. Poll until SUCCEEDED|FAILED    GET  /actor-runs/{runId}
+  // 3. Fetch dataset items            GET  /datasets/{datasetId}/items
+  const { runId, datasetId, actualCostUsd: costUsdActual } = await startAndPollRun(input);
 
-  // Some headers Apify returns are useful — capture the run ID if present.
-  const actorRunId = r.headers.get('x-apify-run-id') ?? undefined;
-
-  const items = (await r.json()) as ApifyPlace[];
-  if (!Array.isArray(items)) {
-    throw new Error('Apify response was not an array of items');
+  const itemsRes = await fetch(
+    `${APIFY_BASE}/datasets/${datasetId}/items?token=${encodeURIComponent(apifyToken())}&clean=true&format=json`,
+  );
+  if (!itemsRes.ok) {
+    throw new Error(`Apify dataset fetch ${itemsRes.status}: ${await itemsRes.text()}`);
   }
-
+  const items = (await itemsRes.json()) as ApifyPlace[];
+  if (!Array.isArray(items)) {
+    throw new Error('Apify dataset items response was not an array');
+  }
+  const actorRunId = runId;
   const rawCount = items.length;
 
   // Map → our MapsProspect shape.
@@ -275,6 +278,7 @@ export async function fetchProspectsFromApify(
     target,
     done: withEmailsList.length >= target,
     costUsdEstimate,
+    costUsdActual,
     actorRunId,
   };
 
@@ -288,3 +292,74 @@ function firstSentence(s: string | undefined): string | undefined {
   if (end === -1 || end > 160) return trimmed.slice(0, 160);
   return trimmed.slice(0, end + 1);
 }
+
+// ---------- Async runner (start + poll + dataset) ----------
+
+interface ApifyRunData {
+  id: string;
+  status: 'READY' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'ABORTED' | 'TIMED-OUT';
+  defaultDatasetId: string;
+  usageTotalUsd?: number;
+  statusMessage?: string;
+  exitCode?: number;
+}
+interface ApifyRunResponse {
+  data?: ApifyRunData;
+  error?: { type: string; message: string };
+}
+
+const POLL_INTERVAL_MS = 3000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap
+
+async function startAndPollRun(input: unknown): Promise<{
+  runId: string;
+  datasetId: string;
+  actualCostUsd?: number;
+}> {
+  // 1. Start the run
+  const startUrl = `${APIFY_BASE}/acts/${APIFY_ACTOR_ID}/runs?token=${encodeURIComponent(apifyToken())}`;
+  const startRes = await fetch(startUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!startRes.ok) {
+    throw new Error(`Apify start run ${startRes.status}: ${await startRes.text()}`);
+  }
+  const startBody = (await startRes.json()) as ApifyRunResponse;
+  if (!startBody.data?.id) {
+    throw new Error(`Apify start run: malformed response: ${JSON.stringify(startBody).slice(0, 300)}`);
+  }
+  const runId = startBody.data.id;
+  const datasetId = startBody.data.defaultDatasetId;
+
+  // 2. Poll until terminal status
+  const pollUrl = `${APIFY_BASE}/actor-runs/${runId}?token=${encodeURIComponent(apifyToken())}`;
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let lastStatus: ApifyRunData['status'] = 'READY';
+  let actualCostUsd: number | undefined;
+
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL_MS);
+    const pollRes = await fetch(pollUrl);
+    if (!pollRes.ok) {
+      // Transient — try a couple times before giving up
+      continue;
+    }
+    const pollBody = (await pollRes.json()) as ApifyRunResponse;
+    if (!pollBody.data) continue;
+    lastStatus = pollBody.data.status;
+    actualCostUsd = pollBody.data.usageTotalUsd;
+    if (lastStatus === 'SUCCEEDED') {
+      return { runId, datasetId, actualCostUsd };
+    }
+    if (lastStatus === 'FAILED' || lastStatus === 'ABORTED' || lastStatus === 'TIMED-OUT') {
+      throw new Error(
+        `Apify run ${runId} ended with status=${lastStatus} (${pollBody.data.statusMessage ?? 'no message'})`,
+      );
+    }
+  }
+  throw new Error(`Apify run ${runId} did not finish within ${POLL_TIMEOUT_MS / 1000}s (last status: ${lastStatus})`);
+}
+
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
