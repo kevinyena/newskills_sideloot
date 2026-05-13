@@ -128,12 +128,22 @@ function tokenCost(usage: UsageMetadata | undefined): CallCost {
 }
 
 // =========================================================================
-// Step 1 — Maps Grounding (canonical list of places, with exclusion)
+// Step 1 — Maps Grounding (filter has-website + return JSON details)
 // =========================================================================
 interface MapsPlace {
   name: string;
   googleMapsUri?: string;
   placeId?: string;
+}
+
+interface MapsCallResult {
+  /** Places parsed from the JSON text response (may include website/phone/…). */
+  jsonPlaces: Array<Partial<MapsProspect> & { name: string }>;
+  /** Places extracted from grounding chunks (always name + uri + placeId only). */
+  chunks: MapsPlace[];
+  widgetContextToken?: string;
+  cost: CallCost;
+  grounded: boolean;
 }
 
 async function callMapsGrounding(opts: {
@@ -143,15 +153,40 @@ async function callMapsGrounding(opts: {
   excludeNames: string[];
   latLng?: { latitude: number; longitude: number };
   model: string;
-}): Promise<{ places: MapsPlace[]; widgetContextToken?: string; cost: CallCost; grounded: boolean }> {
+}): Promise<MapsCallResult> {
   const excludeBlock =
     opts.excludeNames.length > 0
-      ? `\n\nIMPORTANT: EXCLUDE these businesses that we already have, find DIFFERENT ones:\n${opts.excludeNames
+      ? `\n\nEXCLUDE these we already have, find DIFFERENT ones:\n${opts.excludeNames
           .map((n) => `- ${n}`)
           .join('\n')}`
       : '';
 
-  const prompt = `Find up to ${opts.limit} REAL businesses matching "${opts.mapsQuery}" in or near "${opts.city}" on Google Maps. List them by name only. Skip chains/franchises unless that's the explicit query. Prefer businesses with recent reviews.${excludeBlock}`;
+  // Upstream filter: tell Maps Grounding to only surface places WITH a website
+  // AND ask Gemini to emit a JSON array including the website URL. This
+  // (a) removes dead-end places from the funnel and (b) lets us skip the
+  // Search enrich step entirely on the happy path.
+  const prompt = `Find up to ${opts.limit} REAL businesses matching "${opts.mapsQuery}" in or near "${opts.city}" on Google Maps.
+
+CRITICAL: Only include businesses that **have a website listed on their Google Maps page**. SKIP any business without a website — we cannot scrape its email downstream.
+
+Skip chains/franchises unless that's the explicit query. Prefer businesses with recent reviews.${excludeBlock}
+
+Output ONLY a JSON array (no markdown fences, no prose around it). For each business include name + website + any phone/address/rating you can see on the Maps fiche:
+[
+  {
+    "name": "exact business name as on Maps",
+    "website": "https://example.com",
+    "phone": "+33 1 23 45 67 89",
+    "address": "10 rue X, 75011 Paris",
+    "rating": 4.6,
+    "reviewsCount": 234
+  }
+]
+
+Rules:
+- Website is REQUIRED for every entry — if a place has no website on Maps, do not include it.
+- Phone / address / rating / reviewsCount: include if visible, omit otherwise.
+- Do NOT invent data.`;
 
   const body: Record<string, unknown> = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -172,17 +207,23 @@ async function callMapsGrounding(opts: {
   }
 
   const cand = data.candidates?.[0];
-  const chunks: GroundingChunk[] = cand?.groundingMetadata?.groundingChunks ?? [];
-  const grounded = chunks.length > 0;
-  const places: MapsPlace[] = [];
+  const text = cand?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+  const groundingChunks: GroundingChunk[] = cand?.groundingMetadata?.groundingChunks ?? [];
+  const grounded = groundingChunks.length > 0;
+
+  // Parse the JSON array Gemini was asked to emit.
+  const jsonPlaces = parseMapsPlacesJson(text);
+
+  // Always collect chunks too — they carry the authoritative mapsUri + placeId.
+  const chunks: MapsPlace[] = [];
   const seen = new Set<string>();
-  for (const ch of chunks) {
+  for (const ch of groundingChunks) {
     const title = ch.maps?.title?.trim();
     if (!title) continue;
     const key = normalize(title);
     if (seen.has(key)) continue;
     seen.add(key);
-    places.push({
+    chunks.push({
       name: title,
       googleMapsUri: ch.maps?.uri,
       placeId: ch.maps?.placeId,
@@ -193,11 +234,47 @@ async function callMapsGrounding(opts: {
   if (grounded) cost.costUsd += PRICING.mapsGroundedCall;
 
   return {
-    places,
+    jsonPlaces,
+    chunks,
     widgetContextToken: cand?.groundingMetadata?.googleMapsWidgetContextToken,
     cost,
     grounded,
   };
+}
+
+function parseMapsPlacesJson(
+  text: string,
+): Array<Partial<MapsProspect> & { name: string }> {
+  if (!text) return [];
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const start = cleaned.indexOf('[');
+  const end = cleaned.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) return [];
+  try {
+    const arr = JSON.parse(cleaned.slice(start, end + 1));
+    if (!Array.isArray(arr)) return [];
+    const out: Array<Partial<MapsProspect> & { name: string }> = [];
+    for (const raw of arr) {
+      if (!raw || typeof raw !== 'object') continue;
+      const r = raw as Record<string, unknown>;
+      const name = typeof r.name === 'string' ? r.name.trim() : '';
+      if (!name) continue;
+      out.push({
+        name,
+        website: optStr(r.website),
+        phone: optStr(r.phone),
+        address: optStr(r.address),
+        rating: typeof r.rating === 'number' ? r.rating : undefined,
+        reviewsCount:
+          typeof r.reviewsCount === 'number' ? r.reviewsCount : undefined,
+        summary: optStr(r.summary),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 // =========================================================================
@@ -399,18 +476,18 @@ export async function fetchMapsProspects(
     if (withEmailsSoFar >= target) break;
 
     const remaining = target - withEmailsSoFar;
-    // Over-fetch each iteration: many places will lack website or email, so
-    // ask for ~3x the gap, capped at 25 (Maps Grounding ceiling per call).
-    const stepLimit = Math.min(25, Math.max(5, remaining * 3));
+    // Maps now pre-filters for has-website, so we can ask closer to the gap.
+    // Keep a small buffer for places whose website doesn't yield emails.
+    const stepLimit = Math.min(25, Math.max(5, Math.ceil(remaining * 1.8)));
 
-    // 1. Maps Grounding (with exclusion of already-seen names)
+    // 1. Maps Grounding (filter has-website + emit JSON details)
     let mapsRes;
     try {
       mapsRes = await callMapsGrounding({
         mapsQuery: params.mapsQuery,
         city: params.city,
         limit: stepLimit,
-        excludeNames: Array.from(seenNames).slice(0, 40), // cap exclusion list size
+        excludeNames: Array.from(seenNames).slice(0, 40),
         latLng: params.latLng,
         model,
       });
@@ -423,45 +500,84 @@ export async function fetchMapsProspects(
     if (mapsRes.grounded) mapsGroundedAtLeastOnce = true;
     widgetContextToken = widgetContextToken ?? mapsRes.widgetContextToken;
 
-    const newPlaces = mapsRes.places.filter((pl) => !seenNames.has(normalize(pl.name)));
-    newPlaces.forEach((pl) => seenNames.add(normalize(pl.name)));
-    totalFind += newPlaces.length;
-    if (newPlaces.length === 0) break; // Maps has nothing new to give
-
-    // 2. Enrich
-    let enrichRes;
-    try {
-      enrichRes = await enrichPlacesWithSearch(newPlaces, params.city, model);
-    } catch (e) {
-      console.warn(`[maps_grounding] iteration ${iterations} enrich failed: ${(e as Error).message}`);
-      enrichRes = { enriched: {}, cost: { costUsd: 0, inputTokens: 0, outputTokens: 0 }, grounded: false };
+    // Merge JSON places with chunks (chunks carry mapsUri + placeId).
+    // Strategy: if Gemini emitted parseable JSON, trust it (filter for has-website
+    // happened upstream). Otherwise fall back to chunks + Search enrich.
+    let newProspects: MapsProspect[];
+    if (mapsRes.jsonPlaces.length > 0) {
+      // Happy path: Maps gave us structured data already
+      newProspects = mapsRes.jsonPlaces
+        .filter((jp) => !seenNames.has(normalize(jp.name)))
+        .map((jp) => {
+          const chunk = mapsRes.chunks.find(
+            (c) => normalize(c.name) === normalize(jp.name),
+          );
+          return {
+            name: jp.name,
+            website: jp.website,
+            phone: jp.phone,
+            address: jp.address,
+            rating: jp.rating,
+            reviewsCount: jp.reviewsCount,
+            summary: jp.summary,
+            googleMapsUri: chunk?.googleMapsUri,
+            placeId: chunk?.placeId,
+          };
+        });
+    } else if (mapsRes.chunks.length > 0) {
+      // Fallback path: JSON parsing failed → enrich chunks via googleSearch
+      const chunkPlaces: MapsPlace[] = mapsRes.chunks.filter(
+        (c) => !seenNames.has(normalize(c.name)),
+      );
+      let enrichRes;
+      try {
+        enrichRes = await enrichPlacesWithSearch(chunkPlaces, params.city, model);
+      } catch (e) {
+        console.warn(
+          `[maps_grounding] iteration ${iterations} enrich failed: ${(e as Error).message}`,
+        );
+        enrichRes = {
+          enriched: {},
+          cost: { costUsd: 0, inputTokens: 0, outputTokens: 0 },
+          grounded: false,
+        };
+      }
+      apiCalls++;
+      totalCost += enrichRes.cost.costUsd;
+      newProspects = chunkPlaces.map((pl) => {
+        const fuzzy =
+          enrichRes.enriched[pl.name] ??
+          Object.entries(enrichRes.enriched).find(
+            ([k]) => normalize(k) === normalize(pl.name),
+          )?.[1];
+        const fields = fuzzy ?? {};
+        return {
+          name: pl.name,
+          website: fields.website,
+          phone: fields.phone,
+          address: fields.address,
+          rating: fields.rating,
+          reviewsCount: fields.reviewsCount,
+          summary: fields.summary,
+          googleMapsUri: pl.googleMapsUri,
+          placeId: pl.placeId,
+        };
+      });
+    } else {
+      // Maps returned nothing — stop iterating
+      newProspects = [];
     }
-    apiCalls++;
-    totalCost += enrichRes.cost.costUsd;
 
-    const newProspects: MapsProspect[] = newPlaces.map((pl) => {
-      const exact = enrichRes.enriched[pl.name];
-      const fuzzy =
-        exact ??
-        Object.entries(enrichRes.enriched).find(
-          ([k]) => normalize(k) === normalize(pl.name),
-        )?.[1];
-      const fields = fuzzy ?? {};
-      return {
-        name: pl.name,
-        website: fields.website,
-        phone: fields.phone,
-        address: fields.address,
-        rating: fields.rating,
-        reviewsCount: fields.reviewsCount,
-        summary: fields.summary,
-        googleMapsUri: pl.googleMapsUri,
-        placeId: pl.placeId,
-      };
-    });
+    // Track seen + counts BEFORE filtering by website (so exclusion stays accurate)
+    newProspects.forEach((p) => seenNames.add(normalize(p.name)));
+    totalFind += newProspects.length;
+    if (newProspects.length === 0) break;
 
-    // 3. Filter to website-only + extract emails
+    // 2. Filter to website-only (defensive — Maps should have done this upstream,
+    //    but enrich-fallback path may still have placeholders)
     const websiteProspects = newProspects.filter((p) => p.website);
+
+    // 3. Extract up to 2 emails per website (batched URL Context call)
     if (websiteProspects.length > 0 && totalCost < MAX_COST_USD) {
       try {
         const emailsRes = await extractEmailsFromWebsites(
