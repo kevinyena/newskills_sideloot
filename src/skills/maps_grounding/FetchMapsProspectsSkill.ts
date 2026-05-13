@@ -46,6 +46,18 @@ export const MapsProspectSchema = z.object({
   summary: z.string().optional(),
 });
 
+export const IterationTraceSchema = z.object({
+  iteration: z.number(),
+  jsonPath: z.boolean(),
+  find: z.number(),
+  withWebsite: z.number(),
+  withEmails: z.number(),
+  costMaps: z.number(),
+  costEnrich: z.number(),
+  costEmails: z.number(),
+  costTotal: z.number(),
+});
+
 export const PipelineStatsSchema = z.object({
   find: z.number().describe('Total places trouvées par Maps Grounding (toutes itérations).'),
   withWebsite: z.number().describe('Nb de prospects avec un website confirmé.'),
@@ -55,6 +67,7 @@ export const PipelineStatsSchema = z.object({
   iterations: z.number().describe("Nb d'itérations du pipeline."),
   apiCalls: z.number().describe('Nb total d\'appels Gemini API.'),
   costUsd: z.number().describe('Coût estimé total en USD (tokens + grounding surcharges).'),
+  trace: z.array(IterationTraceSchema).describe('Détail par itération.'),
 });
 
 export const FetchMapsProspectsOutputSchema = z.object({

@@ -361,6 +361,17 @@ interface MapsProspect {
   placeId?: string;
   summary?: string;
 }
+interface IterationTrace {
+  iteration: number;
+  jsonPath: boolean;
+  find: number;
+  withWebsite: number;
+  withEmails: number;
+  costMaps: number;
+  costEnrich: number;
+  costEmails: number;
+  costTotal: number;
+}
 interface PipelineStats {
   find: number;
   withWebsite: number;
@@ -370,6 +381,7 @@ interface PipelineStats {
   iterations: number;
   apiCalls: number;
   costUsd: number;
+  trace: IterationTrace[];
 }
 interface FetchMapsProspectsOutput {
   prospects: MapsProspect[];
@@ -1004,15 +1016,35 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
   if (out.stats) {
     const s = out.stats;
     const doneBadge = s.done
-      ? '<span class="grounded-badge" style="background:rgba(124,92,255,0.15);border-color:var(--accent);color:var(--accent)">✓ target atteint</span>'
-      : `<span class="muted">⚠️ ${s.withEmails}/${s.target} — limite atteinte</span>`;
-    const pipeline = `${s.find} found → ${s.withWebsite} with website → ${s.withEmails}/${s.target} with email`;
-    const cost = `💰 $${s.costUsd.toFixed(4)} · ${s.apiCalls} API calls · ${s.iterations} iteration${s.iterations > 1 ? 's' : ''}`;
+      ? '<span class="badge-done">✓ target atteint</span>'
+      : `<span class="badge-warn">⚠️ ${s.withEmails}/${s.target} — limite atteinte</span>`;
+
+    const traceRows = (s.trace ?? [])
+      .map((t) => {
+        const pathTag = t.jsonPath
+          ? '<span class="trace-tag trace-tag-json">JSON</span>'
+          : '<span class="trace-tag trace-tag-fallback">enrich</span>';
+        const enrichCost = t.costEnrich > 0
+          ? `<span class="muted"> + enrich $${t.costEnrich.toFixed(4)}</span>`
+          : '';
+        return `
+          <div class="trace-row">
+            <span class="trace-iter">Iter ${t.iteration}</span>
+            ${pathTag}
+            <span class="trace-counts">${t.find} found → ${t.withWebsite} site → ${t.withEmails} email</span>
+            <span class="trace-cost muted">
+              Maps $${t.costMaps.toFixed(4)}${enrichCost} + URL $${t.costEmails.toFixed(4)} = <strong>$${t.costTotal.toFixed(4)}</strong>
+            </span>
+          </div>`;
+      })
+      .join('');
+
     pipelineHtml = `
       <div class="pipeline-stats">
-        <div class="pipeline-line">${pipeline}</div>
-        <div class="pipeline-line muted">${cost}</div>
+        <div class="pipeline-line"><strong>${s.find}</strong> found → <strong>${s.withWebsite}</strong> with website → <strong>${s.withEmails}/${s.target}</strong> with email</div>
+        <div class="pipeline-line">💰 Total <strong>$${s.costUsd.toFixed(4)}</strong> · ${s.apiCalls} API calls · ${s.iterations} iteration${s.iterations > 1 ? 's' : ''}</div>
         <div class="pipeline-line">${doneBadge}</div>
+        ${traceRows ? `<details class="pipeline-trace" open><summary class="muted small">Détail par itération</summary>${traceRows}</details>` : ''}
       </div>
     `;
   }

@@ -55,6 +55,27 @@ export interface MapsProspect {
   summary?: string;
 }
 
+export interface IterationTrace {
+  /** 1-indexed iteration number. */
+  iteration: number;
+  /** Was the JSON happy path used (true) or the Search-enrich fallback (false)? */
+  jsonPath: boolean;
+  /** New unique places returned by Maps Grounding this iteration. */
+  find: number;
+  /** Of those, how many had a confirmed website. */
+  withWebsite: number;
+  /** Of those, how many had at least one email scraped. */
+  withEmails: number;
+  /** Cost USD of the Maps Grounding call. */
+  costMaps: number;
+  /** Cost USD of the Search Enrich call (0 on the JSON happy path). */
+  costEnrich: number;
+  /** Cost USD of the URL Context email scraping call (0 if no websites). */
+  costEmails: number;
+  /** Sum of the three above. */
+  costTotal: number;
+}
+
 export interface PipelineStats {
   /** Total unique places returned by Maps Grounding across all iterations. */
   find: number;
@@ -72,6 +93,8 @@ export interface PipelineStats {
   apiCalls: number;
   /** Total estimated cost in USD. */
   costUsd: number;
+  /** Per-iteration breakdown for UI visibility. */
+  trace: IterationTrace[];
 }
 
 export interface FetchMapsProspectsResult {
@@ -463,6 +486,7 @@ export async function fetchMapsProspects(
 
   const accumulated: MapsProspect[] = [];
   const seenNames = new Set<string>();
+  const trace: IterationTrace[] = [];
   let totalFind = 0;
   let totalCost = 0;
   let apiCalls = 0;
@@ -504,7 +528,10 @@ export async function fetchMapsProspects(
     // Strategy: if Gemini emitted parseable JSON, trust it (filter for has-website
     // happened upstream). Otherwise fall back to chunks + Search enrich.
     let newProspects: MapsProspect[];
-    if (mapsRes.jsonPlaces.length > 0) {
+    let costEnrich = 0;
+    const jsonPath = mapsRes.jsonPlaces.length > 0;
+
+    if (jsonPath) {
       // Happy path: Maps gave us structured data already
       newProspects = mapsRes.jsonPlaces
         .filter((jp) => !seenNames.has(normalize(jp.name)))
@@ -534,7 +561,7 @@ export async function fetchMapsProspects(
         enrichRes = await enrichPlacesWithSearch(chunkPlaces, params.city, model);
       } catch (e) {
         console.warn(
-          `[maps_grounding] iteration ${iterations} enrich failed: ${(e as Error).message}`,
+          `[maps_grounding] iter ${iterations} enrich failed: ${(e as Error).message}`,
         );
         enrichRes = {
           enriched: {},
@@ -543,7 +570,8 @@ export async function fetchMapsProspects(
         };
       }
       apiCalls++;
-      totalCost += enrichRes.cost.costUsd;
+      costEnrich = enrichRes.cost.costUsd;
+      totalCost += costEnrich;
       newProspects = chunkPlaces.map((pl) => {
         const fuzzy =
           enrichRes.enriched[pl.name] ??
@@ -564,20 +592,21 @@ export async function fetchMapsProspects(
         };
       });
     } else {
-      // Maps returned nothing — stop iterating
+      // Maps returned nothing — record empty trace + stop
       newProspects = [];
     }
 
     // Track seen + counts BEFORE filtering by website (so exclusion stays accurate)
     newProspects.forEach((p) => seenNames.add(normalize(p.name)));
-    totalFind += newProspects.length;
-    if (newProspects.length === 0) break;
+    const findCount = newProspects.length;
+    totalFind += findCount;
 
-    // 2. Filter to website-only (defensive — Maps should have done this upstream,
-    //    but enrich-fallback path may still have placeholders)
+    // 2. Filter to website-only
     const websiteProspects = newProspects.filter((p) => p.website);
 
     // 3. Extract up to 2 emails per website (batched URL Context call)
+    let costEmails = 0;
+    let withEmailsThisIter = 0;
     if (websiteProspects.length > 0 && totalCost < MAX_COST_USD) {
       try {
         const emailsRes = await extractEmailsFromWebsites(
@@ -585,19 +614,40 @@ export async function fetchMapsProspects(
           model,
         );
         apiCalls++;
-        totalCost += emailsRes.cost.costUsd;
+        costEmails = emailsRes.cost.costUsd;
+        totalCost += costEmails;
         for (const p of websiteProspects) {
           const found = p.website ? emailsRes.emails[p.website] : undefined;
-          if (found && found.length > 0) p.emails = found.slice(0, 2);
+          if (found && found.length > 0) {
+            p.emails = found.slice(0, 2);
+            withEmailsThisIter++;
+          }
         }
       } catch (e) {
         console.warn(
-          `[maps_grounding] iteration ${iterations} emails failed: ${(e as Error).message}`,
+          `[maps_grounding] iter ${iterations} emails failed: ${(e as Error).message}`,
         );
       }
     }
 
     accumulated.push(...websiteProspects);
+
+    // Record this iteration in the trace
+    trace.push({
+      iteration: iterations,
+      jsonPath,
+      find: findCount,
+      withWebsite: websiteProspects.length,
+      withEmails: withEmailsThisIter,
+      costMaps: Number(mapsRes.cost.costUsd.toFixed(4)),
+      costEnrich: Number(costEnrich.toFixed(4)),
+      costEmails: Number(costEmails.toFixed(4)),
+      costTotal: Number(
+        (mapsRes.cost.costUsd + costEnrich + costEmails).toFixed(4),
+      ),
+    });
+
+    if (findCount === 0) break; // Maps has no more new places to give
   }
 
   // Final list: only prospects WITH emails (per spec), trimmed to target.
@@ -612,6 +662,7 @@ export async function fetchMapsProspects(
     iterations,
     apiCalls,
     costUsd: Number(totalCost.toFixed(4)),
+    trace,
   };
 
   return {

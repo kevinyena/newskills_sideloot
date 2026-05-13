@@ -532,6 +532,79 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+}
+.pipeline-trace {
+  margin-top: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.pipeline-trace summary {
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+  margin-bottom: 6px;
+}
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.trace-row:first-of-type { border-top: none; }
+.trace-iter {
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 50px;
+}
+.trace-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.trace-tag-json {
+  background: rgba(43, 212, 160, 0.15);
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+.trace-tag-fallback {
+  background: rgba(255, 181, 71, 0.15);
+  color: #ffb547;
+  border: 1px solid #ffb547;
+}
+.trace-counts { flex: 1; font-variant-numeric: tabular-nums; }
+.trace-cost { font-size: 11px; font-variant-numeric: tabular-nums; }
+.trace-cost strong { color: var(--text); }
+.badge-done, .badge-warn {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  border: 1px solid;
+}
+.badge-done {
+  background: rgba(124, 92, 255, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.badge-warn {
+  background: rgba(255, 90, 110, 0.15);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* Modal */
