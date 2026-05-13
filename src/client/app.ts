@@ -354,6 +354,7 @@ interface MapsProspect {
   address?: string;
   phone?: string;
   website?: string;
+  emails?: string[];
   rating?: number;
   reviewsCount?: number;
   googleMapsUri?: string;
@@ -951,7 +952,8 @@ async function mapsGroundingFetchProspects() {
     els.mgElapsed.textContent = `(${elapsed}s)`;
     els.mgStatusText.textContent =
       elapsed < 8 ? 'Interrogation de Google Maps via Gemini…'
-      : elapsed < 20 ? 'Récupération des détails (téléphone, site web)…'
+      : elapsed < 20 ? 'Récupération des sites web…'
+      : elapsed < 45 ? 'Scraping des sites pour extraire les emails…'
       : 'Finalisation…';
   }, 1000);
 
@@ -1011,14 +1013,21 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
         contactBits.push(
           `🌐 <a href="${escapeAttr(p.website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortUrl(p.website))}</a>`,
         );
-      } else {
-        contactBits.push('<span class="prospect-empty">site inconnu</span>');
       }
       if (p.googleMapsUri) {
         contactBits.push(
           `🗺 <a href="${escapeAttr(p.googleMapsUri)}" target="_blank" rel="noopener noreferrer">Maps</a>`,
         );
       }
+      const emailsHtml =
+        p.emails && p.emails.length > 0
+          ? `<div class="prospect-emails">${p.emails
+              .map(
+                (e) =>
+                  `✉️ <a href="mailto:${escapeAttr(e)}">${escapeHtml(e)}</a>`,
+              )
+              .join('')}</div>`
+          : '<div class="prospect-emails prospect-emails-empty">✉️ aucun email trouvé sur le site</div>';
       div.innerHTML = `
         <div class="prospect-head">
           <div class="prospect-name">${escapeHtml(p.name)}</div>
@@ -1026,6 +1035,7 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
         </div>
         ${p.address ? `<div class="prospect-address">📍 ${escapeHtml(p.address)}</div>` : ''}
         <div class="prospect-contact">${contactBits.join('')}</div>
+        ${emailsHtml}
         ${p.summary ? `<div class="prospect-summary">${escapeHtml(p.summary)}</div>` : ''}
       `;
       els.mgProspectsList.appendChild(div);

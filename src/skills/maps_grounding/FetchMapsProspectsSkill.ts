@@ -37,6 +37,8 @@ export const MapsProspectSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   website: z.string().optional(),
+  /** Up to 2 emails scraped from the business website via Gemini urlContext. */
+  emails: z.array(z.string()).max(2).optional(),
   rating: z.number().optional(),
   reviewsCount: z.number().optional(),
   googleMapsUri: z.string().optional(),
@@ -57,7 +59,7 @@ export class FetchMapsProspectsSkill
 {
   public readonly name = 'fetch_maps_prospects';
   public readonly description =
-    'Récupère une liste de prospects réels via Gemini + Google Maps Grounding (nom, adresse, téléphone, site, rating, placeId).';
+    'Récupère via Gemini + Maps Grounding les prospects locaux avec site web, puis enrichit chaque site via Gemini urlContext pour extraire jusqu\'à 2 emails de contact.';
   public readonly schema = FetchMapsProspectsInputSchema;
 
   public readonly displayName = 'Fetch Maps Prospects';

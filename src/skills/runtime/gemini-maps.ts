@@ -33,8 +33,10 @@ export interface MapsProspect {
   address?: string;
   /** Phone number (digits) if Gemini surfaced one — may be missing. */
   phone?: string;
-  /** Business website URL if known — your downstream skill will scrape email from it. */
+  /** Business website URL if known — used as the source for email extraction. */
   website?: string;
+  /** Up to 2 contact emails scraped from the business website via Gemini urlContext. */
+  emails?: string[];
   /** Google rating 1.0-5.0 if known. */
   rating?: number | undefined;
   /** Number of Google reviews if known. */
@@ -203,11 +205,115 @@ Rules:
     });
   }
 
+  // Per spec: filter to businesses that have a website (no website ⇒ no scrapable email).
+  const withWebsite = prospects.filter((p) => p.website && p.website.length > 0);
+
+  // Enrich with up to 2 emails per website via Gemini urlContext.
+  if (withWebsite.length > 0) {
+    try {
+      const websites = withWebsite.map((p) => p.website!);
+      const emailsByUrl = await extractEmailsFromWebsites(websites, model);
+      for (const p of withWebsite) {
+        const found = p.website ? emailsByUrl[p.website] : undefined;
+        if (found && found.length > 0) p.emails = found.slice(0, 2);
+      }
+    } catch (e) {
+      // Don't fail the whole skill if email enrichment errors — return prospects without emails.
+      console.warn(`[maps_grounding] email enrichment failed: ${(e as Error).message}`);
+    }
+  }
+
   return {
-    prospects,
+    prospects: withWebsite,
     grounded: chunks.length > 0,
     widgetContextToken: cand?.groundingMetadata?.googleMapsWidgetContextToken,
   };
+}
+
+/**
+ * Batched email extraction. Asks Gemini (with the `url_context` tool) to visit
+ * each website and return up to 2 contact emails per URL.
+ *
+ * One Gemini call for the whole batch — much cheaper than N calls.
+ * urlContext max is 20 URLs per request, so we cap and de-dup.
+ */
+export async function extractEmailsFromWebsites(
+  websites: string[],
+  model: string = DEFAULT_MAPS_MODEL,
+): Promise<Record<string, string[]>> {
+  // De-dup and clamp to 20 URLs (urlContext API limit).
+  const urls = Array.from(new Set(websites.filter(Boolean))).slice(0, 20);
+  if (urls.length === 0) return {};
+
+  const prompt = `Visit each of the following business websites and find up to 2 contact email addresses on each one. Look at the homepage, footer, contact / about / "mentions légales" / "qui sommes-nous" pages.
+
+Websites:
+${urls.map((u, i) => `${i + 1}. ${u}`).join('\n')}
+
+Output ONLY a JSON object, no other text, no markdown fences. Keys are the EXACT URLs above, values are arrays of up to 2 real emails found on the site:
+{
+  "${urls[0]}": ["contact@example.com", "info@example.com"],
+  "${urls[1] ?? 'https://example2.com'}": ["hello@example2.com"]
+}
+
+Rules:
+- Maximum 2 emails per URL.
+- ONLY include emails actually written on the website. Do NOT invent or guess.
+- Skip placeholders like noreply@, no-reply@, donotreply@.
+- If no email is found for a URL, set its value to [].
+- Include every URL from the list as a key, even if its value is [].`;
+
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    tools: [{ url_context: {} }],
+  };
+
+  const url = `${GEMINI_BASE}/models/${model}:generateContent`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': apiKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    throw new Error(`Gemini urlContext ${r.status}: ${await r.text()}`);
+  }
+
+  const data = (await r.json()) as GeminiResponse;
+  if (data.error) {
+    throw new Error(
+      `Gemini error ${data.error.code} ${data.error.status}: ${data.error.message}`,
+    );
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+  return extractJsonObject(text);
+}
+
+function extractJsonObject(text: string): Record<string, string[]> {
+  if (!text) return {};
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return {};
+  const slice = cleaned.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(slice) as Record<string, unknown>;
+    const out: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!Array.isArray(v)) continue;
+      const emails = v
+        .filter((x): x is string => typeof x === 'string')
+        .map((s) => s.trim())
+        .filter((s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) // basic email shape
+        .filter((s) => !/^(no.?reply|donotreply)@/i.test(s)) // strip placeholders
+        .slice(0, 2);
+      out[k] = emails;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 function normalize(s: string): string {
