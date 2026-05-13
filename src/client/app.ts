@@ -362,10 +362,14 @@ interface MapsProspect {
   summary?: string;
 }
 interface PipelineStats {
-  mapsChunks: number;
-  enriched: number;
+  find: number;
   withWebsite: number;
   withEmails: number;
+  target: number;
+  done: boolean;
+  iterations: number;
+  apiCalls: number;
+  costUsd: number;
 }
 interface FetchMapsProspectsOutput {
   prospects: MapsProspect[];
@@ -958,9 +962,10 @@ async function mapsGroundingFetchProspects() {
     const elapsed = Math.floor((Date.now() - startedAt) / 1000);
     els.mgElapsed.textContent = `(${elapsed}s)`;
     els.mgStatusText.textContent =
-      elapsed < 8 ? 'Interrogation de Google Maps via Gemini…'
-      : elapsed < 20 ? 'Récupération des sites web…'
-      : elapsed < 45 ? 'Scraping des sites pour extraire les emails…'
+      elapsed < 8 ? 'Interrogation de Google Maps…'
+      : elapsed < 20 ? 'Enrichissement (sites web, téléphones)…'
+      : elapsed < 40 ? 'Scraping des sites pour les emails…'
+      : elapsed < 70 ? 'Pas assez d\'emails — itération supplémentaire…'
       : 'Finalisation…';
   }, 1000);
 
@@ -994,10 +999,24 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
   const groundedBadge = out.grounded
     ? '<span class="grounded-badge">Maps grounded</span>'
     : '<span class="muted">⚠️ Réponse non grounded sur Maps</span>';
-  const statsHtml = out.stats
-    ? ` <span class="muted">· pipeline: ${out.stats.mapsChunks} found → ${out.stats.enriched} enriched → ${out.stats.withWebsite} with website → ${out.stats.withEmails} with email</span>`
-    : '';
-  els.mgGroundedMeta.innerHTML = groundedBadge + statsHtml;
+
+  let pipelineHtml = '';
+  if (out.stats) {
+    const s = out.stats;
+    const doneBadge = s.done
+      ? '<span class="grounded-badge" style="background:rgba(124,92,255,0.15);border-color:var(--accent);color:var(--accent)">✓ target atteint</span>'
+      : `<span class="muted">⚠️ ${s.withEmails}/${s.target} — limite atteinte</span>`;
+    const pipeline = `${s.find} found → ${s.withWebsite} with website → ${s.withEmails}/${s.target} with email`;
+    const cost = `💰 $${s.costUsd.toFixed(4)} · ${s.apiCalls} API calls · ${s.iterations} iteration${s.iterations > 1 ? 's' : ''}`;
+    pipelineHtml = `
+      <div class="pipeline-stats">
+        <div class="pipeline-line">${pipeline}</div>
+        <div class="pipeline-line muted">${cost}</div>
+        <div class="pipeline-line">${doneBadge}</div>
+      </div>
+    `;
+  }
+  els.mgGroundedMeta.innerHTML = groundedBadge + pipelineHtml;
 
   els.mgProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {

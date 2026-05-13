@@ -520,6 +520,19 @@ body {
   color: var(--success);
   border: 1px solid var(--success);
 }
+.pipeline-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pipeline-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* Modal */
 .modal {

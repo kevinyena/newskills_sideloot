@@ -47,10 +47,14 @@ export const MapsProspectSchema = z.object({
 });
 
 export const PipelineStatsSchema = z.object({
-  mapsChunks: z.number().describe('Nb de places trouvées par Maps Grounding.'),
-  enriched: z.number().describe('Nb de places enrichies (website/phone) via googleSearch.'),
-  withWebsite: z.number().describe('Nb de prospects avec un website (= ce qui sort de la skill).'),
-  withEmails: z.number().describe("Nb de prospects pour lesquels au moins 1 email a été trouvé."),
+  find: z.number().describe('Total places trouvées par Maps Grounding (toutes itérations).'),
+  withWebsite: z.number().describe('Nb de prospects avec un website confirmé.'),
+  withEmails: z.number().describe('Nb de prospects avec au moins 1 email — limité au target.'),
+  target: z.number().describe("Objectif demandé par l'utilisateur."),
+  done: z.boolean().describe('True si target atteint.'),
+  iterations: z.number().describe("Nb d'itérations du pipeline."),
+  apiCalls: z.number().describe('Nb total d\'appels Gemini API.'),
+  costUsd: z.number().describe('Coût estimé total en USD (tokens + grounding surcharges).'),
 });
 
 export const FetchMapsProspectsOutputSchema = z.object({
