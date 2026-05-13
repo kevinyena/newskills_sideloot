@@ -18,6 +18,8 @@ import { AdaptToVeoPromptSkill } from './video_ugc/AdaptToVeoPromptSkill.js';
 import { GenerateVeoVideoSkill } from './video_ugc/GenerateVeoVideoSkill.js';
 import { PickNewsletterTopicSkill } from './newsletter/PickNewsletterTopicSkill.js';
 import { GenerateNewsletterSkill } from './newsletter/GenerateNewsletterSkill.js';
+import { CreateProspectableBusinessSkill } from './prospection/CreateProspectableBusinessSkill.js';
+import { DefineProspectionStrategySkill } from './prospection/DefineProspectionStrategySkill.js';
 
 export { type BaseSkill, type SkillContext, type SkillType } from './BaseSkill.js';
 export { renderTemplate } from './runtime/render.js';
@@ -29,6 +31,8 @@ export {
   GenerateVeoVideoSkill,
   PickNewsletterTopicSkill,
   GenerateNewsletterSkill,
+  CreateProspectableBusinessSkill,
+  DefineProspectionStrategySkill,
 };
 
 /** All registered skills. New skills: import + add here. */
@@ -39,6 +43,8 @@ export const ALL_SKILLS: ReadonlyArray<BaseSkill> = [
   new GenerateVeoVideoSkill(),
   new PickNewsletterTopicSkill(),
   new GenerateNewsletterSkill(),
+  new CreateProspectableBusinessSkill(),
+  new DefineProspectionStrategySkill(),
 ];
 
 /** Look up a skill by its technical `name`. */
@@ -103,6 +109,7 @@ export function serializeSkill(skill: BaseSkill): SerializedSkill {
 const CATEGORY_DISPLAY: Record<string, { name: string; icon: string; order: number }> = {
   video_ugc: { name: 'Video UGC', icon: '🎬', order: 1 },
   newsletter: { name: 'Newsletter', icon: '📨', order: 2 },
+  prospection: { name: 'Prospection', icon: '🎯', order: 3 },
 };
 
 function defaultDisplay(category: string, fallbackOrder: number) {

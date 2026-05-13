@@ -223,6 +223,28 @@ const els = {
   nlStatusText: $('nlStatusText'),
   nlElapsed: $('nlElapsed'),
   nlEdition: $('nlEdition'),
+  // prospection panel
+  prLang: $<HTMLSelectElement>('prLang'),
+  prBiz: $<HTMLSelectElement>('prBiz'),
+  prRandomBtn: $<HTMLButtonElement>('prRandomBtn'),
+  prStrategyBtn: $<HTMLButtonElement>('prStrategyBtn'),
+  prBusinessCard: $('prBusinessCard'),
+  prStrategyCard: $('prStrategyCard'),
+  prName: $('prName'),
+  prType: $('prType'),
+  prTicket: $('prTicket'),
+  prPitch: $('prPitch'),
+  prSegment: $('prSegment'),
+  prGeo: $('prGeo'),
+  prSize: $('prSize'),
+  prPain: $('prPain'),
+  prStrategyStatus: $('prStrategyStatus'),
+  prStatusText: $('prStatusText'),
+  prElapsed: $('prElapsed'),
+  prStrategy: $('prStrategy'),
+  prPrimaryStrategy: $('prPrimaryStrategy'),
+  prChannels: $('prChannels'),
+  prFirstWeek: $('prFirstWeek'),
 };
 
 // ---------- State ----------
@@ -259,6 +281,34 @@ interface NewsletterEdition {
 }
 let currentConcept: NewsletterConcept | null = null;
 let nlElapsedTimer: number | null = null;
+
+// Prospection state
+interface ProspectableBusiness {
+  name: string;
+  type: string;
+  pitch: string;
+  icp: {
+    segment: string;
+    geo: string;
+    sizeRange: string;
+    pain: string;
+    estimatedTicket: string;
+  };
+}
+interface ProspectionChannel {
+  name: string;
+  percentage: number;
+  rationale: string;
+  tooling?: string;
+  icpFit: string;
+}
+interface ProspectionStrategy {
+  primaryStrategy: string;
+  channels: ProspectionChannel[];
+  firstWeek: string;
+}
+let currentProspectBusiness: ProspectableBusiness | null = null;
+let prElapsedTimer: number | null = null;
 
 // ---------- API ----------
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -665,10 +715,127 @@ function formatDate(iso: string): string {
   catch { return iso; }
 }
 
+// ---------- Prospection pipeline ----------
+function resetProspectionStrategyCard() {
+  if (prElapsedTimer !== null) { clearInterval(prElapsedTimer); prElapsedTimer = null; }
+  els.prStrategyCard.classList.add('hidden');
+  els.prStrategy.classList.add('hidden');
+  els.prStrategyStatus.classList.remove('hidden');
+  els.prChannels.innerHTML = '';
+}
+
+async function prospectionRandomBusiness() {
+  clearError();
+  resetProspectionStrategyCard();
+  resetSkillsStatus();
+  currentProspectBusiness = null;
+  els.prBusinessCard.classList.add('hidden');
+  els.prStrategyBtn.disabled = true;
+  els.prRandomBtn.disabled = true;
+  const original = els.prRandomBtn.textContent;
+  els.prRandomBtn.textContent = '⏳ Génération…';
+
+  try {
+    const language = els.prLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const businessType = els.prBiz.value || undefined;
+
+    currentProspectBusiness = await runSkill<
+      { businessType?: string; languageName: string },
+      ProspectableBusiness
+    >('create_prospectable_business', { businessType, languageName });
+
+    els.prName.textContent = currentProspectBusiness.name;
+    els.prType.textContent = currentProspectBusiness.type;
+    els.prTicket.textContent = currentProspectBusiness.icp.estimatedTicket;
+    els.prPitch.textContent = currentProspectBusiness.pitch;
+    els.prSegment.textContent = currentProspectBusiness.icp.segment;
+    els.prGeo.textContent = currentProspectBusiness.icp.geo;
+    els.prSize.textContent = currentProspectBusiness.icp.sizeRange;
+    els.prPain.textContent = currentProspectBusiness.icp.pain;
+    els.prBusinessCard.classList.remove('hidden');
+    els.prStrategyBtn.disabled = false;
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.prRandomBtn.disabled = false;
+    els.prRandomBtn.textContent = original;
+  }
+}
+
+async function prospectionGenerateStrategy() {
+  if (!currentProspectBusiness) return;
+  clearError();
+  resetProspectionStrategyCard();
+  els.prStrategyCard.classList.remove('hidden');
+  els.prStrategyBtn.disabled = true;
+  const startedAt = Date.now();
+
+  prElapsedTimer = window.setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    els.prElapsed.textContent = `(${elapsed}s)`;
+    els.prStatusText.textContent =
+      elapsed < 15 ? 'Analyse de l\'ICP…'
+      : elapsed < 30 ? 'Arbitrage des canaux…'
+      : 'Finalisation…';
+  }, 1000);
+
+  try {
+    setSkillStatus('define_prospection_strategy', 'running');
+    const language = els.prLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const strategy = await runSkill<
+      { business: ProspectableBusiness; languageName: string },
+      ProspectionStrategy
+    >('define_prospection_strategy', { business: currentProspectBusiness, languageName });
+    setSkillStatus('define_prospection_strategy', 'done');
+    renderProspectionStrategy(strategy);
+  } catch (e) {
+    setSkillStatus('define_prospection_strategy', 'failed');
+    showError((e as Error).message);
+  } finally {
+    if (prElapsedTimer !== null) { clearInterval(prElapsedTimer); prElapsedTimer = null; }
+    els.prStrategyStatus.classList.add('hidden');
+    els.prStrategyBtn.disabled = false;
+  }
+}
+
+function renderProspectionStrategy(strategy: ProspectionStrategy) {
+  els.prPrimaryStrategy.textContent = strategy.primaryStrategy;
+  els.prFirstWeek.textContent = strategy.firstWeek;
+
+  els.prChannels.innerHTML = '';
+  for (const channel of strategy.channels) {
+    const div = document.createElement('div');
+    div.className = 'channel';
+    const toolingLine = channel.tooling
+      ? `<span><strong>Outils :</strong> ${escapeHtml(channel.tooling)}</span>`
+      : '';
+    div.innerHTML = `
+      <div class="channel-head">
+        <span class="channel-name">${escapeHtml(channel.name)}</span>
+        <span class="channel-pct">${channel.percentage}%</span>
+      </div>
+      <div class="channel-bar">
+        <div class="channel-bar-fill" style="width: ${Math.max(0, Math.min(100, channel.percentage))}%"></div>
+      </div>
+      <p class="channel-rationale">${escapeHtml(channel.rationale)}</p>
+      <div class="channel-meta">
+        <span><strong>ICP fit :</strong> ${escapeHtml(channel.icpFit)}</span>
+        ${toolingLine}
+      </div>
+    `;
+    els.prChannels.appendChild(div);
+  }
+  els.prStrategy.classList.remove('hidden');
+}
+
 // ---------- Wiring ----------
 els.ugcRandomBtn.addEventListener('click', ugcGenerateIdea);
 els.ugcGenVideoBtn.addEventListener('click', ugcGenerateVideo);
 els.nlRandomBtn.addEventListener('click', newsletterPickTopic);
 els.nlGenBtn.addEventListener('click', newsletterGenerateEdition);
+els.prRandomBtn.addEventListener('click', prospectionRandomBusiness);
+els.prStrategyBtn.addEventListener('click', prospectionGenerateStrategy);
 
 init().catch((e) => showError((e as Error).message));

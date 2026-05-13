@@ -173,6 +173,79 @@
       </div>
     </section>
 
+    <!-- =========== Panel: Prospection =========== -->
+    <section class="skill-panel hidden" data-panel="prospection">
+      <div class="controls">
+        <label class="field">
+          <span>Langue</span>
+          <select id="prLang">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Type de business</span>
+          <select id="prBiz">
+            <option value="">Random</option>
+            <option value="SaaS">SaaS</option>
+            <option value="agence">Agence</option>
+            <option value="infoproduct">Infoproduit</option>
+            <option value="service local">Service local</option>
+            <option value="newsletter">Newsletter</option>
+            <option value="marketplace">Marketplace</option>
+            <option value="coaching">Coaching</option>
+          </select>
+        </label>
+        <button id="prRandomBtn" class="btn primary">🎲 Random business</button>
+        <button id="prStrategyBtn" class="btn primary" disabled>🎯 Stratégie de prospection</button>
+      </div>
+
+      <div id="prBusinessCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Business</div>
+          <h2 id="prName"></h2>
+          <div class="meta">
+            <span class="tag" id="prType"></span>
+            <span class="tag" id="prTicket"></span>
+          </div>
+          <p id="prPitch" class="muted"></p>
+        </div>
+        <div class="card-section">
+          <div class="kicker">ICP — Ideal Customer Profile</div>
+          <div class="script-field"><span class="lbl">Segment</span><p id="prSegment"></p></div>
+          <div class="script-field"><span class="lbl">Geo</span><p id="prGeo" class="muted"></p></div>
+          <div class="script-field"><span class="lbl">Taille typique</span><p id="prSize" class="muted"></p></div>
+          <div class="script-field"><span class="lbl">Pain</span><p id="prPain"></p></div>
+        </div>
+      </div>
+
+      <div id="prStrategyCard" class="card hidden">
+        <div id="prStrategyStatus" class="status">
+          <div class="spinner"></div>
+          <span id="prStatusText">Construction de la stratégie…</span>
+          <span id="prElapsed" class="muted"></span>
+        </div>
+        <div id="prStrategy" class="prospection-strategy hidden">
+          <div class="card-section">
+            <div class="kicker">Stratégie globale</div>
+            <p id="prPrimaryStrategy"></p>
+          </div>
+          <div class="card-section">
+            <div class="kicker">Mix de canaux</div>
+            <div id="prChannels" class="channels"></div>
+          </div>
+          <div class="card-section">
+            <div class="kicker">Plan de la 1ère semaine</div>
+            <p id="prFirstWeek" class="muted"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <div id="errorBox" class="error hidden"></div>
   </main>
 
