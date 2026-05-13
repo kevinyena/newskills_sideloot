@@ -62,7 +62,11 @@ export async function callClaude<T>({
   tools,
 }: CallClaudeOpts<T>): Promise<T> {
   const builtTools = buildTools(tools);
-  const response = await getClient().messages.parse({
+
+  // Always stream: the SDK refuses non-streaming requests that may exceed 10 min,
+  // which happens with adaptive thinking + web_search + structured outputs.
+  // Streaming also keeps the HTTP connection alive cleanly during long generations.
+  const stream = getClient().messages.stream({
     model: CLAUDE_MODEL,
     max_tokens: maxTokens,
     thinking: { type: 'adaptive' },
@@ -82,10 +86,30 @@ export async function callClaude<T>({
     ...(builtTools ? { tools: builtTools as unknown as never } : {}),
   });
 
-  if (!response.parsed_output) {
+  const finalMessage = await stream.finalMessage();
+
+  // With output_config.format set, the SDK populates parsed_output on the
+  // final message (same behavior as messages.parse() in non-streaming mode).
+  const maybeParsed = (finalMessage as unknown as { parsed_output?: T }).parsed_output;
+  if (maybeParsed !== undefined && maybeParsed !== null) {
+    return maybeParsed;
+  }
+
+  // Fallback: extract JSON from text blocks and validate against the schema.
+  const text = finalMessage.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { text: string }).text)
+    .join('');
+  if (!text) {
     throw new Error(
-      `Claude n'a pas retourné de sortie structurée (stop_reason=${response.stop_reason}).`,
+      `Claude n'a pas retourné de contenu texte (stop_reason=${finalMessage.stop_reason ?? '?'}).`,
     );
   }
-  return response.parsed_output;
+  try {
+    return schema.parse(JSON.parse(text));
+  } catch (e) {
+    throw new Error(
+      `Réponse Claude non parseable: ${(e as Error).message}\nDébut: ${text.slice(0, 400)}`,
+    );
+  }
 }
