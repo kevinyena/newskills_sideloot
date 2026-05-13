@@ -46,9 +46,17 @@ export const MapsProspectSchema = z.object({
   summary: z.string().optional(),
 });
 
+export const PipelineStatsSchema = z.object({
+  mapsChunks: z.number().describe('Nb de places trouvées par Maps Grounding.'),
+  enriched: z.number().describe('Nb de places enrichies (website/phone) via googleSearch.'),
+  withWebsite: z.number().describe('Nb de prospects avec un website (= ce qui sort de la skill).'),
+  withEmails: z.number().describe("Nb de prospects pour lesquels au moins 1 email a été trouvé."),
+});
+
 export const FetchMapsProspectsOutputSchema = z.object({
   prospects: z.array(MapsProspectSchema),
   grounded: z.boolean().describe('True si la réponse a effectivement consommé Maps (et a été facturée).'),
+  stats: PipelineStatsSchema.optional(),
   widgetContextToken: z.string().optional(),
 });
 export type FetchMapsProspectsOutput = z.infer<typeof FetchMapsProspectsOutputSchema>;
@@ -81,6 +89,7 @@ export class FetchMapsProspectsSkill
     return {
       prospects: result.prospects as MapsProspect[],
       grounded: result.grounded,
+      stats: result.stats,
       widgetContextToken: result.widgetContextToken,
     };
   }

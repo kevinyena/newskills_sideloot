@@ -361,9 +361,16 @@ interface MapsProspect {
   placeId?: string;
   summary?: string;
 }
+interface PipelineStats {
+  mapsChunks: number;
+  enriched: number;
+  withWebsite: number;
+  withEmails: number;
+}
 interface FetchMapsProspectsOutput {
   prospects: MapsProspect[];
   grounded: boolean;
+  stats?: PipelineStats;
   widgetContextToken?: string;
 }
 let currentLocalBusiness: LocalBusiness | null = null;
@@ -987,7 +994,10 @@ function renderMapsProspects(out: FetchMapsProspectsOutput) {
   const groundedBadge = out.grounded
     ? '<span class="grounded-badge">Maps grounded</span>'
     : '<span class="muted">⚠️ Réponse non grounded sur Maps</span>';
-  els.mgGroundedMeta.innerHTML = groundedBadge;
+  const statsHtml = out.stats
+    ? ` <span class="muted">· pipeline: ${out.stats.mapsChunks} found → ${out.stats.enriched} enriched → ${out.stats.withWebsite} with website → ${out.stats.withEmails} with email</span>`
+    : '';
+  els.mgGroundedMeta.innerHTML = groundedBadge + statsHtml;
 
   els.mgProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {
