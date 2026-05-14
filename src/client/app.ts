@@ -491,9 +491,8 @@ interface FindXProspectsOutput {
   prospects: XProspect[];
   query: string;
   stats: {
-    searchCalls: number;
-    tweetsScanned: number;
-    uniqueAuthors: number;
+    googleHandlesFound: number;
+    xLookupCalls: number;
     bioMatched: number;
     target: number;
     done: boolean;
@@ -1398,17 +1397,14 @@ async function xFindProspects() {
   els.xFindBtn.textContent = '🔎 Recherche X…';
 
   try {
-    const language = els.xLang.value as Language;
-    const lang = language === 'en' ? 'en' : language;
     const target = Number(els.xProspectTarget.value) || 10;
     const out = await runSkill<
-      { topics: string[]; bioKeywords: string[]; target: number; lang?: string },
+      { bioKeywords: string[]; topics?: string[]; target: number },
       FindXProspectsOutput
     >('find_x_prospects', {
-      topics: currentXBusiness.icp.xTopics,
       bioKeywords: currentXBusiness.icp.xBioKeywords,
+      topics: currentXBusiness.icp.xTopics,
       target,
-      lang,
     });
     currentXProspects = out.prospects;
     renderXProspects(out);
@@ -1429,22 +1425,22 @@ function renderXProspects(out: FindXProspectsOutput) {
     : `<span class="badge-warn">⚠️ ${out.prospects.length}/${s.target}</span>`;
 
   const errorBlock = s.searchError
-    ? `<div class="error" style="margin:8px 0;padding:10px 12px"><strong>X API a renvoyé une erreur :</strong><br><code>${escapeHtml(s.searchError)}</code></div>`
+    ? `<div class="error" style="margin:8px 0;padding:10px 12px"><strong>Erreur :</strong><br><code>${escapeHtml(s.searchError)}</code></div>`
     : '';
 
   els.xProspectsStats.innerHTML = `
     ${errorBlock}
-    <div>${s.tweetsScanned} tweets scanned → ${s.uniqueAuthors} auteurs uniques → ${s.bioMatched} bios matching keywords ICP</div>
-    <div>💰 Coût X search estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> · query: <code>${escapeHtml(out.query)}</code></div>
+    <div><strong>${s.googleHandlesFound}</strong> handles Google → <strong>${s.xLookupCalls}</strong> looked up via X API → <strong>${s.bioMatched}</strong> bios matchent → <strong>${out.prospects.length}/${s.target}</strong> retournés</div>
+    <div>💰 Coût estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> (Google gratuit + X lookup $0.010/user) · query: <code>${escapeHtml(out.query)}</code></div>
     <div>${doneBadge}</div>
   `;
   els.xProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {
     const msg = s.searchError
-      ? "L'appel X /tweets/search/recent a échoué — voir l'erreur ci-dessus. Causes courantes : (1) app X pas attachée à un Project, (2) endpoint search hors quota / crédits insuffisants, (3) scope tweet.read manquant. Re-link ton compte X si besoin."
-      : s.tweetsScanned === 0
-        ? "X a retourné 0 tweets sur cette query. Les topics sont peut-être trop niches — édite les topics (cliquer × puis + Add) et relance Find prospects."
-        : "Aucune bio ne matche les keywords. Édite les bio keywords pour des termes plus larges puis relance.";
+      ? "Erreur — voir l'erreur ci-dessus. Si Google = CAPTCHA, attends 15-30 min."
+      : s.googleHandlesFound === 0
+        ? "Google a retourné 0 profil X. Élargis tes keywords (mots trop niches) et relance."
+        : "Google a trouvé des handles mais aucune bio ne matche les keywords après vérification X API. Édite tes keywords.";
     els.xProspectsList.innerHTML = `<p class="muted">${msg}</p>`;
   } else {
     for (const p of out.prospects) {

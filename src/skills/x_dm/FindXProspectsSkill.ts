@@ -1,13 +1,12 @@
 import { z } from 'zod';
 import type { BaseSkill, SkillContext } from '../BaseSkill.js';
-import { searchRecentTweets, type XSearchAuthor } from '../runtime/x-api.js';
+import { searchGoogleForXProfiles } from '../runtime/google-search.js';
+import { lookupUsersByUsernames } from '../runtime/x-api.js';
 
-// X "Tweet Read" pricing — $0.010 per resource returned.
-const PRICING = {
-  tweetReadPerResource: 0.010,
-} as const;
+// X "User Read" cost per resource — billed per user returned by /2/users/by.
+const X_USER_READ_PER_RESOURCE = 0.010;
 
-// Soft signal: bio mentions DM/open/msg → likely accepts DMs from anyone.
+// Soft signal: bio mentions DM/open/msg → more likely to accept DMs from anyone.
 const OPEN_DM_HINTS = [
   /\bdm me\b/i,
   /\bdms?\s+open\b/i,
@@ -23,7 +22,6 @@ function bioMatchesKeywords(bio: string | undefined, keywords: string[]): boolea
   const lower = bio.toLowerCase();
   return keywords.some((k) => lower.includes(k.toLowerCase()));
 }
-
 function bioSuggestsOpenDms(bio: string | undefined): boolean {
   if (!bio) return false;
   return OPEN_DM_HINTS.some((re) => re.test(bio));
@@ -31,26 +29,24 @@ function bioSuggestsOpenDms(bio: string | undefined): boolean {
 
 // ----- Schemas -----
 export const FindXProspectsInputSchema = z.object({
-  /** Topics that prospects tweet about. Used to build the X search query. */
-  topics: z
-    .array(z.string())
-    .min(1)
-    .max(8)
-    .describe(
-      "Sujets dont parlent les prospects (ex: 'indie hacker', 'micro-SaaS'). 2-5 idéal. Tirés de business.icp.xTopics.",
-    ),
-  /** Keywords that must appear in the prospect's BIO to qualify. */
+  /** Keywords used in the Google query AND to filter the returned bios. */
   bioKeywords: z
     .array(z.string())
     .min(1)
     .max(15)
     .describe(
-      "Keywords filtrés contre la bio (description). Tirés de business.icp.xBioKeywords. Match insensible à la casse.",
+      "Mots-clés cherchés dans les bios via Google. Query: (site:x.com OR site:twitter.com) (\"kw1\" OR ...) -inurl:status -inurl:search",
+    ),
+  /** Optional extra terms — folded into the Google query along with bio keywords. */
+  topics: z
+    .array(z.string())
+    .max(8)
+    .optional()
+    .describe(
+      "Optionnel — termes additionnels OU-és dans la query Google. Non utilisés pour le filtre bio post-fetch.",
     ),
   /** Target number of qualifying prospects. */
   target: z.number().int().min(1).max(50).default(10),
-  /** Language filter for tweet search. */
-  lang: z.string().min(2).max(5).optional(),
 });
 export type FindXProspectsInput = z.infer<typeof FindXProspectsInputSchema>;
 
@@ -62,25 +58,29 @@ export const XProspectSchema = z.object({
   verified: z.boolean().optional(),
   followersCount: z.number().optional(),
   recentTweet: z.string().optional(),
-  /** Soft signal: bio mentions "DM me", "DMs open", 📩 etc. */
   openDmsHint: z.boolean(),
-  /** Quality score 0-100: bio keyword count + open-DM bonus + follower normalizer. */
   score: z.number(),
 });
 export type XProspect = z.infer<typeof XProspectSchema>;
 
 export const FindXProspectsOutputSchema = z.object({
   prospects: z.array(XProspectSchema),
-  query: z.string().describe('Requête X effectivement utilisée (debug).'),
+  query: z.string().describe("Requête Google utilisée (debug)."),
   stats: z.object({
-    searchCalls: z.number(),
-    tweetsScanned: z.number(),
-    uniqueAuthors: z.number(),
-    bioMatched: z.number(),
+    googleHandlesFound: z
+      .number()
+      .describe("Nb de handles X uniques extraits du SERP Google."),
+    xLookupCalls: z
+      .number()
+      .describe("Nb d'utilisateurs cherchés via X API /users/by."),
+    bioMatched: z
+      .number()
+      .describe("Nb de bios qui contiennent au moins 1 keyword (vérification post-lookup)."),
     target: z.number(),
     done: z.boolean(),
-    costUsdEstimate: z.number(),
-    /** Si non-null, la requête X a échoué — message d'erreur brut pour debug. */
+    costUsdEstimate: z
+      .number()
+      .describe("Coût estimé en USD (Google gratuit + X user lookup à $0.010/user)."),
     searchError: z.string().optional(),
   }),
 });
@@ -92,14 +92,14 @@ export class FindXProspectsSkill
 {
   public readonly name = 'find_x_prospects';
   public readonly description =
-    "Cherche sur X des utilisateurs dont la bio matche l'ICP (parmi ceux qui ont tweeté récemment sur les topics). Soft-flag les profils avec hints d'open-DMs (📩, 'DMs open', 'DM me', ...). X pay-as-you-go: $0.010 par tweet retourné.";
+    "Cherche sur Google des profils X dont la PAGE contient les keywords (typiquement = leur bio), puis vérifie/enrichit chaque handle via l'API X (/2/users/by). Soft-flag les bios avec hints d'open DMs.";
   public readonly schema = FindXProspectsInputSchema;
 
   public readonly displayName = 'Find X Prospects';
   public readonly category = 'x_dm';
   public readonly order = 2;
   public readonly type = 'api' as const;
-  public readonly endpoint = 'twitter.com /2/tweets/search/recent';
+  public readonly endpoint = 'google.com/search → twitter.com /2/users/by';
 
   async execute(
     input: FindXProspectsInput,
@@ -107,124 +107,149 @@ export class FindXProspectsSkill
   ): Promise<FindXProspectsOutput> {
     const target = input.target ?? 10;
 
-    // Build the X search query from `topics` + `bioKeywords` MERGED (with dedupe).
-    //
-    // Why merge: the bio filter alone can only narrow the search results we
-    // already have — it can't widen them. So if the user adds "trader" to
-    // bio keywords but the topics are still "scope creep / TJM / contrats",
-    // we'd search tweets about freelance dev (not traders) and then filter
-    // for "trader" in bio → ~always 0 matches. Merging means "trader" also
-    // drives the search itself, surfacing tweets about trading from traders.
-    //
-    // Operators kept minimal to stay on X's base tier:
-    //   - `OR` + parens + "phrase"  → always available
-    //   - `-is:retweet`              → standard operator (free tier OK)
-    //   ⚠️ DO NOT add `has:profile_image`, `has:links`, etc. — those are
-    //   "paid operators" only available on Pro tier. They will 400 with
-    //   "Reference to invalid operator ... not available in current product".
+    // Build the query keyword list. bioKeywords first (primary), topics next.
     const seenLower = new Set<string>();
-    const searchTerms: string[] = [];
-    for (const term of [...input.topics, ...input.bioKeywords]) {
+    const keywords: string[] = [];
+    for (const term of [...input.bioKeywords, ...(input.topics ?? [])]) {
       const trimmed = term.trim();
       if (!trimmed) continue;
       const key = trimmed.toLowerCase();
       if (seenLower.has(key)) continue;
       seenLower.add(key);
-      searchTerms.push(trimmed);
+      keywords.push(trimmed);
     }
-    // X has operator complexity caps (~22 on base tier). 10 OR-clauses is safe.
-    const capped = searchTerms.slice(0, 10);
-    if (capped.length === 0) {
+
+    if (keywords.length === 0) {
       return {
         prospects: [],
         query: '',
         stats: {
-          searchCalls: 0,
-          tweetsScanned: 0,
-          uniqueAuthors: 0,
+          googleHandlesFound: 0,
+          xLookupCalls: 0,
           bioMatched: 0,
           target,
           done: false,
           costUsdEstimate: 0,
-          searchError: 'Aucun topic ni bio keyword fourni — rien à chercher.',
+          searchError: 'Aucun keyword fourni — rien à chercher.',
         },
       };
     }
-    const topicPart = capped
-      .map((t) => (t.includes(' ') ? `"${t}"` : t))
-      .join(' OR ');
-    const query = `(${topicPart}) -is:retweet`;
 
-    // Single search call — 100 tweets returned ≈ 60-90 unique authors after
-    // dedupe. Plenty to filter from.
-    let searchCalls = 0;
-    let tweetsScanned = 0;
+    // Cap to keep the Google query short + well-formed
+    const cappedKeywords = keywords.slice(0, 8);
+
+    // ---- 1. Google search → list of handles
+    let googleHandles: string[] = [];
+    let googleQuery = '';
     let searchError: string | undefined;
-    const allAuthors: XSearchAuthor[] = [];
     try {
-      searchCalls++;
-      const r = await searchRecentTweets(query, { maxResults: 100, lang: input.lang });
-      tweetsScanned = r.tweetsReturned;
-      allAuthors.push(...r.authors);
+      const r = await searchGoogleForXProfiles({
+        keywords: cappedKeywords,
+        num: 50, // Google often caps to ~10-30 actual results, but we ask high
+      });
+      googleQuery = r.query;
+      googleHandles = r.profiles.map((p) => p.handle);
     } catch (e) {
-      // Capture the error so the UI can surface it — without this the skill
-      // silently returned 0/0/0/0 and the user couldn't tell what went wrong.
       searchError = (e as Error).message;
       // eslint-disable-next-line no-console
-      console.error(`[find_x_prospects] X search failed: ${searchError}\nquery: ${query}`);
+      console.error(`[find_x_prospects] Google failed: ${searchError}`);
+      return {
+        prospects: [],
+        query: googleQuery,
+        stats: {
+          googleHandlesFound: 0,
+          xLookupCalls: 0,
+          bioMatched: 0,
+          target,
+          done: false,
+          costUsdEstimate: 0,
+          searchError,
+        },
+      };
     }
 
-    // Filter by bio keywords + score
-    const matched = allAuthors
-      .filter((a) => bioMatchesKeywords(a.bio, input.bioKeywords))
-      .map((a) => {
-        const lower = (a.bio ?? '').toLowerCase();
-        const kwHits = input.bioKeywords.filter((k) => lower.includes(k.toLowerCase())).length;
-        const openHint = bioSuggestsOpenDms(a.bio);
-        const followersBoost = Math.min(20, Math.log10(Math.max(1, a.followersCount ?? 1)) * 5);
-        // 50 base + 10/kw hit + 20 open hint + up to 20 followers
-        const score = Math.min(
-          100,
-          Math.round(50 + kwHits * 10 + (openHint ? 20 : 0) + followersBoost),
-        );
-        const prospect: XProspect = {
-          handle: a.handle,
-          userId: a.userId,
-          name: a.name,
-          bio: a.bio,
-          verified: a.verified,
-          followersCount: a.followersCount,
-          recentTweet: a.recentTweet,
-          openDmsHint: openHint,
-          score,
-        };
-        return prospect;
-      });
+    if (googleHandles.length === 0) {
+      return {
+        prospects: [],
+        query: googleQuery,
+        stats: {
+          googleHandlesFound: 0,
+          xLookupCalls: 0,
+          bioMatched: 0,
+          target,
+          done: false,
+          costUsdEstimate: 0,
+          searchError:
+            "Google a retourné 0 profil X. Élargis tes keywords ou retire le filtre topic.",
+        },
+      };
+    }
 
-    // Rank: open-DMs hint first (they're more likely to receive), then score desc
-    matched.sort((a, b) => {
+    // ---- 2. Batched X lookup to get real bios + follower counts.
+    // /2/users/by accepts up to 100 handles per call. We over-fetch from Google
+    // so we may have more than we need — keep the ones with bio match.
+    const handlesToLookup = googleHandles.slice(0, Math.max(target * 4, 50));
+    let userDetails: Awaited<ReturnType<typeof lookupUsersByUsernames>> = [];
+    let lookupError: string | undefined;
+    try {
+      userDetails = await lookupUsersByUsernames(handlesToLookup);
+    } catch (e) {
+      lookupError = (e as Error).message;
+      // eslint-disable-next-line no-console
+      console.error(`[find_x_prospects] X lookup failed: ${lookupError}`);
+    }
+    const xLookupCalls = handlesToLookup.length;
+    const lookupCostUsd = userDetails.length * X_USER_READ_PER_RESOURCE;
+
+    // ---- 3. Filter by bio match (case-insensitive contains any keyword)
+    const bioMatchedUsers = userDetails.filter((u) =>
+      bioMatchesKeywords(u.bio, input.bioKeywords),
+    );
+
+    // ---- 4. Score + sort
+    const scored: XProspect[] = bioMatchedUsers.map((u) => {
+      const bio = u.bio ?? '';
+      const lower = bio.toLowerCase();
+      const kwHits = input.bioKeywords.filter((k) => lower.includes(k.toLowerCase())).length;
+      const openHint = bioSuggestsOpenDms(bio);
+      const followersBoost = Math.min(20, Math.log10(Math.max(1, u.followersCount ?? 1)) * 5);
+      const score = Math.min(
+        100,
+        Math.round(50 + kwHits * 10 + (openHint ? 20 : 0) + followersBoost),
+      );
+      return {
+        handle: u.username,
+        userId: u.id,
+        name: u.name,
+        bio,
+        verified: u.verified,
+        followersCount: u.followersCount,
+        recentTweet: undefined,
+        openDmsHint: openHint,
+        score,
+      };
+    });
+
+    // Rank: open-DMs hint first, then score desc
+    scored.sort((a, b) => {
       if (a.openDmsHint !== b.openDmsHint) return a.openDmsHint ? -1 : 1;
       return b.score - a.score;
     });
 
-    const top = matched.slice(0, target);
-
-    const costUsdEstimate = Number(
-      (tweetsScanned * PRICING.tweetReadPerResource).toFixed(4),
-    );
+    const top = scored.slice(0, target);
+    const costUsdEstimate = Number(lookupCostUsd.toFixed(4));
 
     return {
       prospects: top,
-      query,
+      query: googleQuery,
       stats: {
-        searchCalls,
-        tweetsScanned,
-        uniqueAuthors: allAuthors.length,
-        bioMatched: matched.length,
+        googleHandlesFound: googleHandles.length,
+        xLookupCalls,
+        bioMatched: bioMatchedUsers.length,
         target,
         done: top.length >= target,
         costUsdEstimate,
-        searchError,
+        searchError: lookupError, // surface X lookup error if any
       },
     };
   }

@@ -315,6 +315,68 @@ export async function lookupUserByUsername(handle: string): Promise<XUserLookup>
   return { id: j.data.id, username: j.data.username, name: j.data.name };
 }
 
+/**
+ * Batched user lookup by handles (up to 100 per call).
+ * Endpoint: GET /2/users/by?usernames=h1,h2,...
+ *
+ * Returns user details including bio (description) and follower count.
+ * Pricing: $0.010 per resource (per user returned).
+ */
+export interface XUserDetails {
+  id: string;
+  username: string;
+  name?: string;
+  bio?: string;
+  followersCount?: number;
+  verified?: boolean;
+}
+
+interface XUsersByResponse {
+  data?: Array<{
+    id: string;
+    username: string;
+    name?: string;
+    description?: string;
+    verified?: boolean;
+    public_metrics?: {
+      followers_count?: number;
+      following_count?: number;
+      tweet_count?: number;
+    };
+  }>;
+  errors?: Array<{ message: string; resource_id?: string }>;
+}
+
+export async function lookupUsersByUsernames(handles: string[]): Promise<XUserDetails[]> {
+  const clean = Array.from(
+    new Set(handles.map((h) => h.replace(/^@/, '').trim()).filter((h) => h.length > 0)),
+  ).slice(0, 100);
+  if (clean.length === 0) return [];
+
+  const token = await getValidAccessToken();
+  const params = new URLSearchParams({
+    usernames: clean.join(','),
+    'user.fields': 'description,public_metrics,verified',
+  });
+  const res = await fetch(`${X_API_BASE}/users/by?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const j = (await res.json()) as XUsersByResponse;
+  if (!res.ok) {
+    throw new Error(
+      `X users/by failed (${res.status}): ${j.errors?.[0]?.message ?? 'unknown'}`,
+    );
+  }
+  return (j.data ?? []).map((u) => ({
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    bio: u.description,
+    followersCount: u.public_metrics?.followers_count,
+    verified: u.verified,
+  }));
+}
+
 interface XDmResponse {
   data?: { dm_conversation_id: string; dm_event_id: string };
   errors?: Array<{ message: string; detail?: string }>;
