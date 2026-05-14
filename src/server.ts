@@ -8,6 +8,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ALL_SKILLS, buildSections, findSkill } from './skills/index.js';
 import { startGeneration, pollStatus, proxyDownload, type AspectRatio } from './skills/runtime/veo.js';
+import {
+  buildAuthorizeUrl,
+  handleCallback,
+  getStatus as getXStatus,
+  unlink as xUnlink,
+} from './skills/runtime/x-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -90,6 +96,61 @@ app.get('/api/veo/proxy', async (req: Request, res: Response) => {
     const { buffer, contentType } = await proxyDownload(uri);
     res.setHeader('Content-Type', contentType);
     res.send(buffer);
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+// ---------- X (Twitter) OAuth ----------
+app.get('/api/auth/x/login', (_req: Request, res: Response) => {
+  try {
+    const { url } = buildAuthorizeUrl();
+    res.redirect(url);
+  } catch (e) {
+    res.status(500).send(`X OAuth login failed: ${(e as Error).message}`);
+  }
+});
+
+app.get('/api/auth/x/callback', async (req: Request, res: Response) => {
+  const code = req.query.code as string | undefined;
+  const state = req.query.state as string | undefined;
+  const error = req.query.error as string | undefined;
+  if (error) {
+    return res.status(400).send(`<h1>X OAuth refusé</h1><p>${error}</p><a href="/">Retour</a>`);
+  }
+  if (!code || !state) {
+    return res.status(400).send('<h1>OAuth callback invalide</h1><a href="/">Retour</a>');
+  }
+  try {
+    const stored = await handleCallback({ code, state });
+    res.send(`
+      <!doctype html><meta charset="utf-8">
+      <title>X linked</title>
+      <style>body{font-family:system-ui;background:#0b0d12;color:#e7eaf0;padding:40px;max-width:520px;margin:auto}
+        a{color:#7c5cff}.ok{color:#2bd4a0}</style>
+      <h1>✓ Compte X linké</h1>
+      <p>Connecté en tant que <strong>@${stored.username}</strong></p>
+      <p class="ok">Scopes: ${stored.scopes.join(', ')}</p>
+      <p>Tu peux fermer cet onglet et retourner sur <a href="/">l'app</a>.</p>
+      <script>window.opener && window.opener.postMessage({type:'x_linked', username: '${stored.username}'}, '*'); setTimeout(()=>window.close(), 1500);</script>
+    `);
+  } catch (e) {
+    res.status(500).send(`<h1>X OAuth failed</h1><pre>${(e as Error).message}</pre><a href="/">Retour</a>`);
+  }
+});
+
+app.get('/api/auth/x/status', async (_req: Request, res: Response) => {
+  try {
+    res.json(await getXStatus());
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+app.post('/api/auth/x/logout', async (_req: Request, res: Response) => {
+  try {
+    await xUnlink();
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }

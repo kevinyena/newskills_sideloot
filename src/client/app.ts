@@ -270,6 +270,37 @@ const els = {
   mgGroundedMeta: $('mgGroundedMeta'),
   mgProspectsList: $('mgProspectsList'),
   mgEmailHint: $('mgEmailHint'),
+  // x_dm panel
+  xAuthStatus: $('xAuthStatus'),
+  xLinkBtn: $<HTMLButtonElement>('xLinkBtn'),
+  xUnlinkBtn: $<HTMLButtonElement>('xUnlinkBtn'),
+  xLang: $<HTMLSelectElement>('xLang'),
+  xBiz: $<HTMLSelectElement>('xBiz'),
+  xVariantCount: $<HTMLSelectElement>('xVariantCount'),
+  xRandomBtn: $<HTMLButtonElement>('xRandomBtn'),
+  xGenDMBtn: $<HTMLButtonElement>('xGenDMBtn'),
+  xBusinessCard: $('xBusinessCard'),
+  xName: $('xName'),
+  xType: $('xType'),
+  xTicket: $('xTicket'),
+  xPitch: $('xPitch'),
+  xSegment: $('xSegment'),
+  xPain: $('xPain'),
+  xBioKeywords: $('xBioKeywords'),
+  xTopics: $('xTopics'),
+  xDMCard: $('xDMCard'),
+  xDMTemplate: $('xDMTemplate'),
+  xDMRationale: $('xDMRationale'),
+  xDMCombos: $('xDMCombos'),
+  xVariantsCount: $('xVariantsCount'),
+  xVariantsList: $('xVariantsList'),
+  xSendCard: $('xSendCard'),
+  xHandles: $<HTMLTextAreaElement>('xHandles'),
+  xSendBtn: $<HTMLButtonElement>('xSendBtn'),
+  xSendStatus: $('xSendStatus'),
+  xSendStatusText: $('xSendStatusText'),
+  xSendResults: $('xSendResults'),
+  xSendResultsList: $('xSendResultsList'),
 };
 
 // ---------- State ----------
@@ -389,6 +420,47 @@ interface FetchMapsProspectsOutput {
 }
 let currentLocalBusiness: LocalBusiness | null = null;
 let mgElapsedTimer: number | null = null;
+
+// X DM state
+interface XOutreachBusiness {
+  name: string;
+  type: string;
+  pitch: string;
+  icp: {
+    segment: string;
+    xBioKeywords: string[];
+    xTopics: string[];
+    pain: string;
+    estimatedTicket: string;
+  };
+}
+interface GeneratedXDM {
+  template: string;
+  rationale: string;
+  variants: string[];
+  totalCombos: number;
+}
+interface XStatusResp {
+  linked: boolean;
+  username?: string;
+  userId?: string;
+  expiresAt?: number;
+  scopes?: string[];
+}
+interface DMResult {
+  handle: string;
+  status: 'sent' | 'failed';
+  variantUsed?: string;
+  dmEventId?: string;
+  error?: string;
+}
+interface SendXDMsOutput {
+  results: DMResult[];
+  sentCount: number;
+  failedCount: number;
+}
+let currentXBusiness: XOutreachBusiness | null = null;
+let currentXDM: GeneratedXDM | null = null;
 
 // ---------- API ----------
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -1125,6 +1197,225 @@ function shortUrl(u: string): string {
   }
 }
 
+// ---------- X DM pipeline ----------
+
+async function refreshXAuthStatus() {
+  try {
+    const status = await apiGet<XStatusResp>('/api/auth/x/status');
+    if (status.linked) {
+      els.xAuthStatus.innerHTML = `<span class="x-linked-badge">linked</span>Connecté en tant que <strong>@${escapeHtml(status.username ?? '?')}</strong>`;
+      els.xLinkBtn.classList.add('hidden');
+      els.xUnlinkBtn.classList.remove('hidden');
+    } else {
+      els.xAuthStatus.innerHTML = `<span class="muted">Aucun compte X linké.</span>`;
+      els.xLinkBtn.classList.remove('hidden');
+      els.xUnlinkBtn.classList.add('hidden');
+    }
+  } catch (e) {
+    els.xAuthStatus.innerHTML = `<span class="muted">Statut X : erreur (${escapeHtml((e as Error).message)})</span>`;
+  }
+}
+
+function xLogin() {
+  // Open OAuth in a popup so the user lands back here on success.
+  const w = window.open('/api/auth/x/login', 'x-oauth', 'width=720,height=720');
+  if (!w) {
+    // popup blocked — fall back to full redirect
+    window.location.href = '/api/auth/x/login';
+    return;
+  }
+  // The callback page postMessages window.opener — listen for it
+  window.addEventListener('message', function once(ev) {
+    if (ev.data?.type === 'x_linked') {
+      window.removeEventListener('message', once);
+      refreshXAuthStatus();
+    }
+  });
+  // Also poll a few times in case postMessage was blocked
+  let polls = 0;
+  const poller = window.setInterval(async () => {
+    polls++;
+    if (polls > 20) {
+      clearInterval(poller);
+      return;
+    }
+    const status = await apiGet<XStatusResp>('/api/auth/x/status').catch(() => null);
+    if (status?.linked) {
+      clearInterval(poller);
+      refreshXAuthStatus();
+    }
+  }, 1500);
+}
+
+async function xLogout() {
+  try {
+    await apiPost('/api/auth/x/logout', {});
+    refreshXAuthStatus();
+  } catch (e) {
+    showError((e as Error).message);
+  }
+}
+
+async function xRandomBusiness() {
+  clearError();
+  currentXBusiness = null;
+  currentXDM = null;
+  els.xBusinessCard.classList.add('hidden');
+  els.xDMCard.classList.add('hidden');
+  els.xSendCard.classList.add('hidden');
+  els.xGenDMBtn.disabled = true;
+  els.xSendBtn.disabled = true;
+  els.xRandomBtn.disabled = true;
+  resetSkillsStatus();
+  const original = els.xRandomBtn.textContent;
+  els.xRandomBtn.textContent = '⏳ Génération…';
+
+  try {
+    const language = els.xLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const businessType = els.xBiz.value || undefined;
+
+    currentXBusiness = await runSkill<
+      { businessType?: string; languageName: string },
+      XOutreachBusiness
+    >('create_x_outreach_business', { businessType, languageName });
+
+    const b = currentXBusiness;
+    els.xName.textContent = b.name;
+    els.xType.textContent = b.type;
+    els.xTicket.textContent = b.icp.estimatedTicket;
+    els.xPitch.textContent = b.pitch;
+    els.xSegment.textContent = b.icp.segment;
+    els.xPain.textContent = b.icp.pain;
+    els.xBioKeywords.innerHTML = b.icp.xBioKeywords
+      .map((k) => `<span class="tag">${escapeHtml(k)}</span>`)
+      .join('');
+    els.xTopics.innerHTML = b.icp.xTopics
+      .map((k) => `<span class="tag">${escapeHtml(k)}</span>`)
+      .join('');
+    els.xBusinessCard.classList.remove('hidden');
+    els.xGenDMBtn.disabled = false;
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.xRandomBtn.disabled = false;
+    els.xRandomBtn.textContent = original;
+  }
+}
+
+async function xGenerateDM() {
+  if (!currentXBusiness) return;
+  clearError();
+  els.xDMCard.classList.add('hidden');
+  els.xSendCard.classList.add('hidden');
+  els.xGenDMBtn.disabled = true;
+  const original = els.xGenDMBtn.textContent;
+  els.xGenDMBtn.textContent = '⏳ Écriture…';
+
+  try {
+    const language = els.xLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const variantCount = Number(els.xVariantCount.value) || 6;
+
+    currentXDM = await runSkill<
+      { business: XOutreachBusiness; languageName: string; variantCount: number },
+      GeneratedXDM
+    >('generate_x_dm', { business: currentXBusiness, languageName, variantCount });
+
+    renderXDM(currentXDM);
+    els.xSendCard.classList.remove('hidden');
+    els.xSendBtn.disabled = false;
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.xGenDMBtn.disabled = false;
+    els.xGenDMBtn.textContent = original;
+  }
+}
+
+function renderXDM(dm: GeneratedXDM) {
+  els.xDMTemplate.innerHTML = highlightSpintax(dm.template);
+  els.xDMRationale.textContent = dm.rationale;
+  els.xDMCombos.textContent = `${dm.totalCombos} combinaisons possibles · ${dm.variants.length} variantes uniques générées`;
+  els.xVariantsCount.textContent = `(${dm.variants.length})`;
+  els.xVariantsList.innerHTML = dm.variants
+    .map((v) => `<li>${escapeHtml(v)}</li>`)
+    .join('');
+  els.xDMCard.classList.remove('hidden');
+}
+
+function highlightSpintax(template: string): string {
+  const escaped = escapeHtml(template);
+  // Wrap `{a/b/c}` groups in a styled span. Only groups with `/` are real spintax.
+  return escaped.replace(/\{([^{}]*\/[^{}]*)\}/g, (_, inner) => {
+    return `<span class="spintax-group">{${inner}}</span>`;
+  });
+}
+
+async function xSendDMs() {
+  if (!currentXDM) return;
+  const handlesRaw = els.xHandles.value;
+  const handles = handlesRaw
+    .split(/[\s,;]+/)
+    .map((h) => h.trim().replace(/^@/, ''))
+    .filter((h) => h.length > 0);
+  if (handles.length === 0) {
+    showError('Aucun handle à contacter — colle des @handles dans la zone de texte.');
+    return;
+  }
+  if (handles.length > 10) {
+    showError(`Max 10 handles par run (cap dur). Tu en as ${handles.length}.`);
+    return;
+  }
+  clearError();
+  els.xSendBtn.disabled = true;
+  els.xSendStatus.classList.remove('hidden');
+  els.xSendResults.classList.add('hidden');
+  els.xSendStatusText.textContent = `Envoi de ${handles.length} DMs (délai 7s entre chaque)…`;
+
+  try {
+    const out = await runSkill<
+      { template: string; handles: string[]; variants: string[]; delayMs: number },
+      SendXDMsOutput
+    >('send_x_dms', {
+      template: currentXDM.template,
+      handles,
+      variants: currentXDM.variants,
+      delayMs: 7000,
+    });
+    renderSendResults(out);
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.xSendBtn.disabled = false;
+    els.xSendStatus.classList.add('hidden');
+  }
+}
+
+function renderSendResults(out: SendXDMsOutput) {
+  const rows = out.results
+    .map((r) => {
+      const statusClass = `send-result-status-${r.status}`;
+      const statusEmoji = r.status === 'sent' ? '✓' : '✗';
+      const detail = r.status === 'sent'
+        ? `<span class="send-result-variant">${escapeHtml(r.variantUsed ?? '')}</span>`
+        : `<span class="send-result-variant">${escapeHtml(r.error ?? 'unknown error')}</span>`;
+      return `
+        <div class="send-result">
+          <span class="send-result-handle">@${escapeHtml(r.handle)}</span>
+          <span class="${statusClass}">${statusEmoji} ${r.status}</span>
+          ${detail}
+        </div>
+      `;
+    })
+    .join('');
+  els.xSendResultsList.innerHTML = `
+    <p class="muted small">${out.sentCount} envoyés · ${out.failedCount} échoués</p>
+    ${rows}
+  `;
+  els.xSendResults.classList.remove('hidden');
+}
+
 // ---------- Wiring ----------
 els.ugcRandomBtn.addEventListener('click', ugcGenerateIdea);
 els.ugcGenVideoBtn.addEventListener('click', ugcGenerateVideo);
@@ -1134,5 +1425,12 @@ els.prRandomBtn.addEventListener('click', prospectionRandomBusiness);
 els.prStrategyBtn.addEventListener('click', prospectionGenerateStrategy);
 els.mgRandomBtn.addEventListener('click', mapsGroundingRandomBusiness);
 els.mgFetchBtn.addEventListener('click', mapsGroundingFetchProspects);
+els.xLinkBtn.addEventListener('click', xLogin);
+els.xUnlinkBtn.addEventListener('click', xLogout);
+els.xRandomBtn.addEventListener('click', xRandomBusiness);
+els.xGenDMBtn.addEventListener('click', xGenerateDM);
+els.xSendBtn.addEventListener('click', xSendDMs);
 
-init().catch((e) => showError((e as Error).message));
+init()
+  .then(() => refreshXAuthStatus())
+  .catch((e) => showError((e as Error).message));

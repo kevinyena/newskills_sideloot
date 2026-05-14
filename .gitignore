@@ -7,3 +7,6 @@ videos/
 # build artifacts
 public/app.js
 public/app.js.map
+
+# runtime data (X OAuth tokens, etc.)
+.data/

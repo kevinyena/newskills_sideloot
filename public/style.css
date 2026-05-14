@@ -522,6 +522,116 @@ body {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* X DM — OAuth bar */
+.x-auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+.x-auth-bar .muted em { font-style: italic; }
+.x-auth-actions { display: flex; gap: 8px; }
+.x-linked-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(43, 212, 160, 0.15);
+  color: var(--success);
+  border: 1px solid var(--success);
+  margin-right: 6px;
+}
+
+/* X DM — Spintax + variants */
+.spintax-template {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.spintax-template .spintax-group {
+  background: rgba(124, 92, 255, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+  color: var(--accent);
+}
+.variants-list {
+  list-style: none;
+  padding-left: 0;
+  counter-reset: variant;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.variants-list li {
+  counter-increment: variant;
+  position: relative;
+  padding: 10px 14px 10px 38px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.variants-list li::before {
+  content: counter(variant);
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* X DM — tags + textarea + send results */
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-list .tag { font-size: 11px; }
+textarea {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  width: 100%;
+  resize: vertical;
+}
+textarea:focus { border-color: var(--accent); outline: none; }
+.send-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.send-result:last-child { border-bottom: none; }
+.send-result-handle { font-weight: 700; min-width: 130px; }
+.send-result-status-sent { color: var(--success); }
+.send-result-status-failed { color: var(--danger); }
+.send-result-variant {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+  flex: 1;
+}
 .prospect-empty {
   color: var(--muted);
   font-size: 11px;

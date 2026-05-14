@@ -331,6 +331,109 @@
       </div>
     </section>
 
+    <!-- =========== Panel: X DM =========== -->
+    <section class="skill-panel hidden" data-panel="x_dm">
+      <!-- OAuth status -->
+      <div class="x-auth-bar">
+        <div id="xAuthStatus" class="muted">Statut compte X : <em>chargement…</em></div>
+        <div class="x-auth-actions">
+          <button id="xLinkBtn" class="btn primary">𝕏 Link X account</button>
+          <button id="xUnlinkBtn" class="btn ghost hidden">Délier</button>
+        </div>
+      </div>
+
+      <div class="controls">
+        <label class="field">
+          <span>Langue du DM</span>
+          <select id="xLang">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Type de business</span>
+          <select id="xBiz">
+            <option value="">Random</option>
+            <option value="micro-SaaS">Micro-SaaS</option>
+            <option value="infoproduct">Infoproduit</option>
+            <option value="agence solo">Agence solo</option>
+            <option value="template payant">Template payant</option>
+            <option value="newsletter">Newsletter</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Nb variantes</span>
+          <select id="xVariantCount">
+            <option value="6" selected>6</option>
+            <option value="8">8</option>
+            <option value="10">10</option>
+            <option value="15">15</option>
+          </select>
+        </label>
+        <button id="xRandomBtn" class="btn primary">🎲 Random business</button>
+        <button id="xGenDMBtn" class="btn primary" disabled>✍️ Générer le DM</button>
+      </div>
+
+      <div id="xBusinessCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Business X-outreachable</div>
+          <h2 id="xName"></h2>
+          <div class="meta">
+            <span class="tag" id="xType"></span>
+            <span class="tag" id="xTicket"></span>
+          </div>
+          <p id="xPitch" class="muted"></p>
+        </div>
+        <div class="card-section">
+          <div class="kicker">ICP</div>
+          <div class="script-field"><span class="lbl">Segment</span><p id="xSegment"></p></div>
+          <div class="script-field"><span class="lbl">Pain</span><p id="xPain"></p></div>
+          <div class="script-field">
+            <span class="lbl">Bio keywords (X search)</span>
+            <div id="xBioKeywords" class="tag-list"></div>
+          </div>
+          <div class="script-field">
+            <span class="lbl">Topics</span>
+            <div id="xTopics" class="tag-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="xDMCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Template Spintax</div>
+          <pre id="xDMTemplate" class="spintax-template"></pre>
+          <p class="muted small"><span id="xDMRationale"></span></p>
+          <p class="muted small" id="xDMCombos"></p>
+        </div>
+        <div class="card-section">
+          <div class="kicker">Variantes générées <span id="xVariantsCount" class="muted small"></span></div>
+          <ol id="xVariantsList" class="variants-list"></ol>
+        </div>
+      </div>
+
+      <div id="xSendCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Envoi DM</div>
+          <p class="muted small">⚠️ Cap à 10 handles / run · délai 7s entre envois · DM API X nécessite plan Basic+ ($200/mo)</p>
+          <label class="field">
+            <span>@handles à contacter (un par ligne, max 10)</span>
+            <textarea id="xHandles" placeholder="@elonmusk&#10;@sama&#10;@levelsio" rows="6"></textarea>
+          </label>
+          <button id="xSendBtn" class="btn primary" disabled>📨 Envoyer les DMs</button>
+        </div>
+        <div id="xSendStatus" class="status hidden">
+          <div class="spinner"></div>
+          <span id="xSendStatusText">Envoi en cours…</span>
+        </div>
+        <div id="xSendResults" class="card-section hidden">
+          <div class="kicker">Résultats</div>
+          <div id="xSendResultsList"></div>
+        </div>
+      </div>
+    </section>
+
     <div id="errorBox" class="error hidden"></div>
   </main>
 
