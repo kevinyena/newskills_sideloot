@@ -400,21 +400,26 @@
           <div class="script-field"><span class="lbl">Segment</span><p id="xSegment"></p></div>
           <div class="script-field"><span class="lbl">Pain</span><p id="xPain"></p></div>
           <div class="script-field">
-            <span class="lbl">Bio keywords (X search) <span class="muted small">— click × to remove, ajoute les tiens ci-dessous</span></span>
+            <span class="lbl">Bio keywords <span class="muted small">— filtrent les profils trouvés (ce mot doit être dans leur bio)</span></span>
             <div id="xBioKeywords" class="tag-list editable"></div>
             <div class="tag-add">
-              <input id="xBioKwAdd" type="text" placeholder="ajouter un keyword" />
+              <input id="xBioKwAdd" type="text" placeholder="ajouter un keyword (ex: trader)" />
               <button id="xBioKwAddBtn" class="btn ghost">+ Add</button>
             </div>
           </div>
           <div class="script-field">
-            <span class="lbl">Topics <span class="muted small">— click × to remove</span></span>
+            <span class="lbl">Topics <span class="muted small">— sujets des tweets qu'on cherche (ce dont les gens parlent)</span></span>
             <div id="xTopics" class="tag-list editable"></div>
             <div class="tag-add">
-              <input id="xTopicAdd" type="text" placeholder="ajouter un topic" />
+              <input id="xTopicAdd" type="text" placeholder="ajouter un topic (ex: trading)" />
               <button id="xTopicAddBtn" class="btn ghost">+ Add</button>
             </div>
           </div>
+          <p class="muted small" style="margin-top:10px">
+            💡 <strong>Bio keywords et Topics sont fusionnés</strong> pour la requête X.
+            Ajouter "trader" dans bio keywords cherche aussi les tweets contenant "trader",
+            ET filtre les bios pour ne garder que celles avec "trader".
+          </p>
         </div>
       </div>
 

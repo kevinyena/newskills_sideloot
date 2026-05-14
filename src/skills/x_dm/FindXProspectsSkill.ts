@@ -107,8 +107,14 @@ export class FindXProspectsSkill
   ): Promise<FindXProspectsOutput> {
     const target = input.target ?? 10;
 
-    // Build a tight OR query from topics. Covers people TALKING about these
-    // things RIGHT NOW (recent search = last 7 days). We filter on bio after.
+    // Build the X search query from `topics` + `bioKeywords` MERGED (with dedupe).
+    //
+    // Why merge: the bio filter alone can only narrow the search results we
+    // already have — it can't widen them. So if the user adds "trader" to
+    // bio keywords but the topics are still "scope creep / TJM / contrats",
+    // we'd search tweets about freelance dev (not traders) and then filter
+    // for "trader" in bio → ~always 0 matches. Merging means "trader" also
+    // drives the search itself, surfacing tweets about trading from traders.
     //
     // Operators kept minimal to stay on X's base tier:
     //   - `OR` + parens + "phrase"  → always available
@@ -116,7 +122,35 @@ export class FindXProspectsSkill
     //   ⚠️ DO NOT add `has:profile_image`, `has:links`, etc. — those are
     //   "paid operators" only available on Pro tier. They will 400 with
     //   "Reference to invalid operator ... not available in current product".
-    const topicPart = input.topics
+    const seenLower = new Set<string>();
+    const searchTerms: string[] = [];
+    for (const term of [...input.topics, ...input.bioKeywords]) {
+      const trimmed = term.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seenLower.has(key)) continue;
+      seenLower.add(key);
+      searchTerms.push(trimmed);
+    }
+    // X has operator complexity caps (~22 on base tier). 10 OR-clauses is safe.
+    const capped = searchTerms.slice(0, 10);
+    if (capped.length === 0) {
+      return {
+        prospects: [],
+        query: '',
+        stats: {
+          searchCalls: 0,
+          tweetsScanned: 0,
+          uniqueAuthors: 0,
+          bioMatched: 0,
+          target,
+          done: false,
+          costUsdEstimate: 0,
+          searchError: 'Aucun topic ni bio keyword fourni — rien à chercher.',
+        },
+      };
+    }
+    const topicPart = capped
       .map((t) => (t.includes(' ') ? `"${t}"` : t))
       .join(' OR ');
     const query = `(${topicPart}) -is:retweet`;
