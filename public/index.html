@@ -400,12 +400,20 @@
           <div class="script-field"><span class="lbl">Segment</span><p id="xSegment"></p></div>
           <div class="script-field"><span class="lbl">Pain</span><p id="xPain"></p></div>
           <div class="script-field">
-            <span class="lbl">Bio keywords (X search)</span>
-            <div id="xBioKeywords" class="tag-list"></div>
+            <span class="lbl">Bio keywords (X search) <span class="muted small">— click × to remove, ajoute les tiens ci-dessous</span></span>
+            <div id="xBioKeywords" class="tag-list editable"></div>
+            <div class="tag-add">
+              <input id="xBioKwAdd" type="text" placeholder="ajouter un keyword" />
+              <button id="xBioKwAddBtn" class="btn ghost">+ Add</button>
+            </div>
           </div>
           <div class="script-field">
-            <span class="lbl">Topics</span>
-            <div id="xTopics" class="tag-list"></div>
+            <span class="lbl">Topics <span class="muted small">— click × to remove</span></span>
+            <div id="xTopics" class="tag-list editable"></div>
+            <div class="tag-add">
+              <input id="xTopicAdd" type="text" placeholder="ajouter un topic" />
+              <button id="xTopicAddBtn" class="btn ghost">+ Add</button>
+            </div>
           </div>
         </div>
       </div>

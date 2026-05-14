@@ -602,6 +602,50 @@ body {
 /* X DM — tags + textarea + send results */
 .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-list .tag { font-size: 11px; }
+.tag-list.editable .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+}
+.tag-list.editable .tag-remove {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tag-list.editable .tag-remove:hover {
+  background: rgba(255, 90, 110, 0.2);
+  color: var(--danger);
+}
+.tag-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+.tag-add input {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+  max-width: 280px;
+}
+.tag-add input:focus { border-color: var(--accent); }
+.tag-add .btn { padding: 6px 12px; font-size: 12px; }
 textarea {
   background: var(--panel-2);
   color: var(--text);

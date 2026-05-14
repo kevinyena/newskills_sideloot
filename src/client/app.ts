@@ -293,7 +293,11 @@ const els = {
   xSegment: $('xSegment'),
   xPain: $('xPain'),
   xBioKeywords: $('xBioKeywords'),
+  xBioKwAdd: $<HTMLInputElement>('xBioKwAdd'),
+  xBioKwAddBtn: $<HTMLButtonElement>('xBioKwAddBtn'),
   xTopics: $('xTopics'),
+  xTopicAdd: $<HTMLInputElement>('xTopicAdd'),
+  xTopicAddBtn: $<HTMLButtonElement>('xTopicAddBtn'),
   xDMCard: $('xDMCard'),
   xDMTemplate: $('xDMTemplate'),
   xDMRationale: $('xDMRationale'),
@@ -1294,6 +1298,44 @@ async function xLogout() {
   }
 }
 
+/**
+ * Render an array of strings as removable chips, in-place on `el`.
+ * Clicking the × button removes the item from the underlying array AND re-renders.
+ * The array is mutated by reference — that's intentional so the caller's state stays sync.
+ */
+function renderEditableTags(el: HTMLElement, items: string[]) {
+  el.innerHTML = '';
+  for (let i = 0; i < items.length; i++) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = items[i]!;
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'tag-remove';
+    x.setAttribute('aria-label', `Remove ${items[i]}`);
+    x.textContent = '×';
+    x.addEventListener('click', () => {
+      items.splice(i, 1);
+      renderEditableTags(el, items);
+    });
+    tag.appendChild(x);
+    el.appendChild(tag);
+  }
+}
+
+function addTagFromInput(input: HTMLInputElement, items: string[], el: HTMLElement) {
+  const value = input.value.trim();
+  if (!value) return;
+  // Dedupe (case-insensitive)
+  const exists = items.some((x) => x.toLowerCase() === value.toLowerCase());
+  if (!exists) {
+    items.push(value);
+    renderEditableTags(el, items);
+  }
+  input.value = '';
+  input.focus();
+}
+
 async function xRandomBusiness() {
   clearError();
   currentXBusiness = null;
@@ -1328,12 +1370,8 @@ async function xRandomBusiness() {
     els.xPitch.textContent = b.pitch;
     els.xSegment.textContent = b.icp.segment;
     els.xPain.textContent = b.icp.pain;
-    els.xBioKeywords.innerHTML = b.icp.xBioKeywords
-      .map((k) => `<span class="tag">${escapeHtml(k)}</span>`)
-      .join('');
-    els.xTopics.innerHTML = b.icp.xTopics
-      .map((k) => `<span class="tag">${escapeHtml(k)}</span>`)
-      .join('');
+    renderEditableTags(els.xBioKeywords, b.icp.xBioKeywords);
+    renderEditableTags(els.xTopics, b.icp.xTopics);
     els.xBusinessCard.classList.remove('hidden');
     // After business → next step is Find prospects (not Generate DM directly)
     els.xFindBtn.disabled = false;
@@ -1571,6 +1609,24 @@ els.xRandomBtn.addEventListener('click', xRandomBusiness);
 els.xFindBtn.addEventListener('click', xFindProspects);
 els.xGenDMBtn.addEventListener('click', xGenerateDM);
 els.xSendBtn.addEventListener('click', xSendDMs);
+
+// Editable tag lists — keywords + topics
+function wireTagAdder(input: HTMLInputElement, button: HTMLButtonElement, listEl: HTMLElement, getItems: () => string[] | null) {
+  const add = () => {
+    const items = getItems();
+    if (!items) return;
+    addTagFromInput(input, items, listEl);
+  };
+  button.addEventListener('click', add);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      add();
+    }
+  });
+}
+wireTagAdder(els.xBioKwAdd, els.xBioKwAddBtn, els.xBioKeywords, () => currentXBusiness?.icp.xBioKeywords ?? null);
+wireTagAdder(els.xTopicAdd, els.xTopicAddBtn, els.xTopics, () => currentXBusiness?.icp.xTopics ?? null);
 
 init()
   .then(() => refreshXAuthStatus())
