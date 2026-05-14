@@ -107,12 +107,19 @@ export class FindXProspectsSkill
   ): Promise<FindXProspectsOutput> {
     const target = input.target ?? 10;
 
-    // Build a tight OR query from topics: covers people TALKING about these
-    // things RIGHT NOW (recent search = last 7 days). We'll filter on bio after.
+    // Build a tight OR query from topics. Covers people TALKING about these
+    // things RIGHT NOW (recent search = last 7 days). We filter on bio after.
+    //
+    // Operators kept minimal to stay on X's base tier:
+    //   - `OR` + parens + "phrase"  → always available
+    //   - `-is:retweet`              → standard operator (free tier OK)
+    //   ⚠️ DO NOT add `has:profile_image`, `has:links`, etc. — those are
+    //   "paid operators" only available on Pro tier. They will 400 with
+    //   "Reference to invalid operator ... not available in current product".
     const topicPart = input.topics
       .map((t) => (t.includes(' ') ? `"${t}"` : t))
       .join(' OR ');
-    const query = `(${topicPart}) -is:retweet has:profile_image`;
+    const query = `(${topicPart}) -is:retweet`;
 
     // Single search call — 100 tweets returned ≈ 60-90 unique authors after
     // dedupe. Plenty to filter from.
