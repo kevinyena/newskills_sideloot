@@ -498,6 +498,7 @@ interface FindXProspectsOutput {
     target: number;
     done: boolean;
     costUsdEstimate: number;
+    searchError?: string;
   };
 }
 let currentXBusiness: XOutreachBusiness | null = null;
@@ -1426,14 +1427,25 @@ function renderXProspects(out: FindXProspectsOutput) {
   const doneBadge = s.done
     ? '<span class="badge-done">✓ target atteint</span>'
     : `<span class="badge-warn">⚠️ ${out.prospects.length}/${s.target}</span>`;
+
+  const errorBlock = s.searchError
+    ? `<div class="error" style="margin:8px 0;padding:10px 12px"><strong>X API a renvoyé une erreur :</strong><br><code>${escapeHtml(s.searchError)}</code></div>`
+    : '';
+
   els.xProspectsStats.innerHTML = `
+    ${errorBlock}
     <div>${s.tweetsScanned} tweets scanned → ${s.uniqueAuthors} auteurs uniques → ${s.bioMatched} bios matching keywords ICP</div>
     <div>💰 Coût X search estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> · query: <code>${escapeHtml(out.query)}</code></div>
     <div>${doneBadge}</div>
   `;
   els.xProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {
-    els.xProspectsList.innerHTML = '<p class="muted">Aucun prospect ne matche la bio. Le random business a peut-être des keywords trop niches — relance Random business.</p>';
+    const msg = s.searchError
+      ? "L'appel X /tweets/search/recent a échoué — voir l'erreur ci-dessus. Causes courantes : (1) app X pas attachée à un Project, (2) endpoint search hors quota / crédits insuffisants, (3) scope tweet.read manquant. Re-link ton compte X si besoin."
+      : s.tweetsScanned === 0
+        ? "X a retourné 0 tweets sur cette query. Les topics sont peut-être trop niches — édite les topics (cliquer × puis + Add) et relance Find prospects."
+        : "Aucune bio ne matche les keywords. Édite les bio keywords pour des termes plus larges puis relance.";
+    els.xProspectsList.innerHTML = `<p class="muted">${msg}</p>`;
   } else {
     for (const p of out.prospects) {
       const div = document.createElement('div');

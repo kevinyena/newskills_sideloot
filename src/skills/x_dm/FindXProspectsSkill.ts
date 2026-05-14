@@ -80,6 +80,8 @@ export const FindXProspectsOutputSchema = z.object({
     target: z.number(),
     done: z.boolean(),
     costUsdEstimate: z.number(),
+    /** Si non-null, la requête X a échoué — message d'erreur brut pour debug. */
+    searchError: z.string().optional(),
   }),
 });
 export type FindXProspectsOutput = z.infer<typeof FindXProspectsOutputSchema>;
@@ -116,6 +118,7 @@ export class FindXProspectsSkill
     // dedupe. Plenty to filter from.
     let searchCalls = 0;
     let tweetsScanned = 0;
+    let searchError: string | undefined;
     const allAuthors: XSearchAuthor[] = [];
     try {
       searchCalls++;
@@ -123,22 +126,11 @@ export class FindXProspectsSkill
       tweetsScanned = r.tweetsReturned;
       allAuthors.push(...r.authors);
     } catch (e) {
-      // Don't fail the whole skill — return an empty prospect list with stats.
-      // The error message includes any X API rate-limit / billing detail.
-      const costUsdEstimate = 0;
-      return {
-        prospects: [],
-        query,
-        stats: {
-          searchCalls,
-          tweetsScanned: 0,
-          uniqueAuthors: 0,
-          bioMatched: 0,
-          target,
-          done: false,
-          costUsdEstimate,
-        },
-      };
+      // Capture the error so the UI can surface it — without this the skill
+      // silently returned 0/0/0/0 and the user couldn't tell what went wrong.
+      searchError = (e as Error).message;
+      // eslint-disable-next-line no-console
+      console.error(`[find_x_prospects] X search failed: ${searchError}\nquery: ${query}`);
     }
 
     // Filter by bio keywords + score
@@ -191,6 +183,7 @@ export class FindXProspectsSkill
         target,
         done: top.length >= target,
         costUsdEstimate,
+        searchError,
       },
     };
   }
