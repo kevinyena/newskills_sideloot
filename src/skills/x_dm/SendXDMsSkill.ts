@@ -73,7 +73,7 @@ export class SendXDMsSkill implements BaseSkill<SendXDMsInput, SendXDMsOutput> {
 
   public readonly displayName = 'Send X DMs';
   public readonly category = 'x_dm';
-  public readonly order = 3;
+  public readonly order = 4;
   public readonly type = 'api' as const;
   public readonly endpoint = 'twitter.com /2/dm_conversations/with/:id/messages';
 

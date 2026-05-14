@@ -277,8 +277,14 @@ const els = {
   xLang: $<HTMLSelectElement>('xLang'),
   xBiz: $<HTMLSelectElement>('xBiz'),
   xVariantCount: $<HTMLSelectElement>('xVariantCount'),
+  xProspectTarget: $<HTMLSelectElement>('xProspectTarget'),
   xRandomBtn: $<HTMLButtonElement>('xRandomBtn'),
+  xFindBtn: $<HTMLButtonElement>('xFindBtn'),
   xGenDMBtn: $<HTMLButtonElement>('xGenDMBtn'),
+  xProspectsCard: $('xProspectsCard'),
+  xProspectsCount: $('xProspectsCount'),
+  xProspectsStats: $('xProspectsStats'),
+  xProspectsList: $('xProspectsList'),
   xBusinessCard: $('xBusinessCard'),
   xName: $('xName'),
   xType: $('xType'),
@@ -466,7 +472,32 @@ interface SendXDMsOutput {
   failedCount: number;
   cost: SendXDMsCost;
 }
+interface XProspect {
+  handle: string;
+  userId: string;
+  name?: string;
+  bio?: string;
+  verified?: boolean;
+  followersCount?: number;
+  recentTweet?: string;
+  openDmsHint: boolean;
+  score: number;
+}
+interface FindXProspectsOutput {
+  prospects: XProspect[];
+  query: string;
+  stats: {
+    searchCalls: number;
+    tweetsScanned: number;
+    uniqueAuthors: number;
+    bioMatched: number;
+    target: number;
+    done: boolean;
+    costUsdEstimate: number;
+  };
+}
 let currentXBusiness: XOutreachBusiness | null = null;
+let currentXProspects: XProspect[] = [];
 let currentXDM: GeneratedXDM | null = null;
 
 // ---------- API ----------
@@ -1266,10 +1297,13 @@ async function xLogout() {
 async function xRandomBusiness() {
   clearError();
   currentXBusiness = null;
+  currentXProspects = [];
   currentXDM = null;
   els.xBusinessCard.classList.add('hidden');
+  els.xProspectsCard.classList.add('hidden');
   els.xDMCard.classList.add('hidden');
   els.xSendCard.classList.add('hidden');
+  els.xFindBtn.disabled = true;
   els.xGenDMBtn.disabled = true;
   els.xSendBtn.disabled = true;
   els.xRandomBtn.disabled = true;
@@ -1301,13 +1335,100 @@ async function xRandomBusiness() {
       .map((k) => `<span class="tag">${escapeHtml(k)}</span>`)
       .join('');
     els.xBusinessCard.classList.remove('hidden');
-    els.xGenDMBtn.disabled = false;
+    // After business → next step is Find prospects (not Generate DM directly)
+    els.xFindBtn.disabled = false;
   } catch (e) {
     showError((e as Error).message);
   } finally {
     els.xRandomBtn.disabled = false;
     els.xRandomBtn.textContent = original;
   }
+}
+
+async function xFindProspects() {
+  if (!currentXBusiness) return;
+  clearError();
+  currentXProspects = [];
+  currentXDM = null;
+  els.xProspectsCard.classList.add('hidden');
+  els.xDMCard.classList.add('hidden');
+  els.xSendCard.classList.add('hidden');
+  els.xFindBtn.disabled = true;
+  els.xGenDMBtn.disabled = true;
+  const original = els.xFindBtn.textContent;
+  els.xFindBtn.textContent = '🔎 Recherche X…';
+
+  try {
+    const language = els.xLang.value as Language;
+    const lang = language === 'en' ? 'en' : language;
+    const target = Number(els.xProspectTarget.value) || 10;
+    const out = await runSkill<
+      { topics: string[]; bioKeywords: string[]; target: number; lang?: string },
+      FindXProspectsOutput
+    >('find_x_prospects', {
+      topics: currentXBusiness.icp.xTopics,
+      bioKeywords: currentXBusiness.icp.xBioKeywords,
+      target,
+      lang,
+    });
+    currentXProspects = out.prospects;
+    renderXProspects(out);
+    els.xGenDMBtn.disabled = currentXProspects.length === 0;
+  } catch (e) {
+    showError((e as Error).message);
+  } finally {
+    els.xFindBtn.disabled = false;
+    els.xFindBtn.textContent = original;
+  }
+}
+
+function renderXProspects(out: FindXProspectsOutput) {
+  const s = out.stats;
+  els.xProspectsCount.textContent = `(${out.prospects.length})`;
+  const doneBadge = s.done
+    ? '<span class="badge-done">✓ target atteint</span>'
+    : `<span class="badge-warn">⚠️ ${out.prospects.length}/${s.target}</span>`;
+  els.xProspectsStats.innerHTML = `
+    <div>${s.tweetsScanned} tweets scanned → ${s.uniqueAuthors} auteurs uniques → ${s.bioMatched} bios matching keywords ICP</div>
+    <div>💰 Coût X search estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> · query: <code>${escapeHtml(out.query)}</code></div>
+    <div>${doneBadge}</div>
+  `;
+  els.xProspectsList.innerHTML = '';
+  if (out.prospects.length === 0) {
+    els.xProspectsList.innerHTML = '<p class="muted">Aucun prospect ne matche la bio. Le random business a peut-être des keywords trop niches — relance Random business.</p>';
+  } else {
+    for (const p of out.prospects) {
+      const div = document.createElement('div');
+      div.className = 'prospect';
+      const verifiedBadge = p.verified ? '<span class="tag" style="color:var(--accent)">verified</span>' : '';
+      const openBadge = p.openDmsHint
+        ? '<span class="tag" style="color:var(--success);border-color:var(--success)">📩 open DMs hint</span>'
+        : '';
+      const followers = p.followersCount !== undefined
+        ? `<span class="muted small">${formatFollowers(p.followersCount)} followers</span>`
+        : '';
+      div.innerHTML = `
+        <div class="prospect-head">
+          <div class="prospect-name">
+            <a href="https://x.com/${escapeAttr(p.handle)}" target="_blank" rel="noopener noreferrer">@${escapeHtml(p.handle)}</a>
+            ${p.name ? ` <span class="muted">— ${escapeHtml(p.name)}</span>` : ''}
+          </div>
+          <div class="prospect-rating">score ${p.score}</div>
+        </div>
+        <div class="prospect-contact">${openBadge}${verifiedBadge}${followers}</div>
+        ${p.bio ? `<p class="prospect-summary" style="font-style:normal;color:var(--text)">${escapeHtml(p.bio)}</p>` : ''}
+        ${p.recentTweet ? `<p class="prospect-summary">« ${escapeHtml(p.recentTweet.slice(0, 200))}${p.recentTweet.length > 200 ? '…' : ''} »</p>` : ''}
+      `;
+      els.xProspectsList.appendChild(div);
+    }
+  }
+  els.xProspectsCard.classList.remove('hidden');
+}
+
+function formatFollowers(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return String(n);
 }
 
 async function xGenerateDM() {
@@ -1330,6 +1451,14 @@ async function xGenerateDM() {
     >('generate_x_dm', { business: currentXBusiness, languageName, variantCount });
 
     renderXDM(currentXDM);
+    // Auto-populate handles textarea from the prospects we already found.
+    // User can still edit before sending.
+    if (currentXProspects.length > 0) {
+      els.xHandles.value = currentXProspects
+        .slice(0, 10)
+        .map((p) => `@${p.handle}`)
+        .join('\n');
+    }
     els.xSendCard.classList.remove('hidden');
     els.xSendBtn.disabled = false;
   } catch (e) {
@@ -1439,6 +1568,7 @@ els.mgFetchBtn.addEventListener('click', mapsGroundingFetchProspects);
 els.xLinkBtn.addEventListener('click', xLogin);
 els.xUnlinkBtn.addEventListener('click', xLogout);
 els.xRandomBtn.addEventListener('click', xRandomBusiness);
+els.xFindBtn.addEventListener('click', xFindProspects);
 els.xGenDMBtn.addEventListener('click', xGenerateDM);
 els.xSendBtn.addEventListener('click', xSendDMs);
 

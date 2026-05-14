@@ -371,7 +371,17 @@
             <option value="15">15</option>
           </select>
         </label>
+        <label class="field">
+          <span>Nb prospects</span>
+          <select id="xProspectTarget">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+            <option value="30">30</option>
+          </select>
+        </label>
         <button id="xRandomBtn" class="btn primary">🎲 Random business</button>
+        <button id="xFindBtn" class="btn primary" disabled>🔍 Find prospects</button>
         <button id="xGenDMBtn" class="btn primary" disabled>✍️ Générer le DM</button>
       </div>
 
@@ -398,6 +408,15 @@
             <div id="xTopics" class="tag-list"></div>
           </div>
         </div>
+      </div>
+
+      <div id="xProspectsCard" class="card hidden">
+        <div class="card-section">
+          <div class="kicker">Prospects découverts <span id="xProspectsCount" class="muted small"></span></div>
+          <div id="xProspectsStats" class="muted small"></div>
+        </div>
+        <div id="xProspectsList" class="prospects-list"></div>
+        <p class="muted hint">💡 Les bios sont matchées contre les keywords ICP. Les profils avec un hint d'open DMs (📩, "DMs open", etc.) sont remontés en premier.</p>
       </div>
 
       <div id="xDMCard" class="card hidden">

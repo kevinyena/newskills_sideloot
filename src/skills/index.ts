@@ -23,6 +23,7 @@ import { ChooseProspectionSkill } from './prospection/ChooseProspectionSkill.js'
 import { CreateLocalBusinessSkill } from './maps_grounding/CreateLocalBusinessSkill.js';
 import { FetchMapsProspectsSkill } from './maps_grounding/FetchMapsProspectsSkill.js';
 import { CreateXOutreachBusinessSkill } from './x_dm/CreateXOutreachBusinessSkill.js';
+import { FindXProspectsSkill } from './x_dm/FindXProspectsSkill.js';
 import { GenerateXDMSkill } from './x_dm/GenerateXDMSkill.js';
 import { SendXDMsSkill } from './x_dm/SendXDMsSkill.js';
 
@@ -41,6 +42,7 @@ export {
   CreateLocalBusinessSkill,
   FetchMapsProspectsSkill,
   CreateXOutreachBusinessSkill,
+  FindXProspectsSkill,
   GenerateXDMSkill,
   SendXDMsSkill,
 };
@@ -58,6 +60,7 @@ export const ALL_SKILLS: ReadonlyArray<BaseSkill> = [
   new CreateLocalBusinessSkill(),
   new FetchMapsProspectsSkill(),
   new CreateXOutreachBusinessSkill(),
+  new FindXProspectsSkill(),
   new GenerateXDMSkill(),
   new SendXDMsSkill(),
 ];

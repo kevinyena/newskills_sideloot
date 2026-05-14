@@ -322,6 +322,112 @@ interface XDmResponse {
   detail?: string;
 }
 
+// ---------- Recent tweet search ----------
+
+interface XSearchTweet {
+  id: string;
+  text: string;
+  author_id?: string;
+  public_metrics?: {
+    retweet_count: number;
+    reply_count: number;
+    like_count: number;
+    quote_count: number;
+  };
+}
+interface XSearchUser {
+  id: string;
+  username: string;
+  name?: string;
+  description?: string;
+  verified?: boolean;
+  public_metrics?: {
+    followers_count: number;
+    following_count: number;
+    tweet_count: number;
+    listed_count: number;
+  };
+}
+interface XSearchResponse {
+  data?: XSearchTweet[];
+  includes?: { users?: XSearchUser[] };
+  meta?: { result_count?: number; next_token?: string };
+  errors?: Array<{ message: string; detail?: string }>;
+  title?: string;
+}
+
+export interface XSearchAuthor {
+  userId: string;
+  handle: string;
+  name?: string;
+  bio?: string;
+  verified?: boolean;
+  followersCount?: number;
+  recentTweet?: string;
+}
+
+export interface SearchTweetsResult {
+  authors: XSearchAuthor[];
+  tweetsReturned: number;
+}
+
+/**
+ * Run a single tweet search and dedupe authors. Returns the unique author list
+ * with their bio (description) so the caller can post-filter on bio keywords.
+ *
+ * Query syntax: standard X recent-search operators (parens, OR, -is:retweet,
+ * has:profile_image, lang:xx, etc.). Capped at 100 results per call.
+ *
+ * Pricing: standard "Tweet Read" tier — $0.010 per resource returned.
+ */
+export async function searchRecentTweets(
+  query: string,
+  options: { maxResults?: number; lang?: string } = {},
+): Promise<SearchTweetsResult> {
+  const token = await getValidAccessToken();
+  const params = new URLSearchParams({
+    query: options.lang ? `${query} lang:${options.lang}` : query,
+    max_results: String(Math.min(Math.max(options.maxResults ?? 100, 10), 100)),
+    'tweet.fields': 'public_metrics,created_at',
+    'user.fields': 'description,public_metrics,verified',
+    expansions: 'author_id',
+  });
+  const url = `${X_API_BASE}/tweets/search/recent?${params.toString()}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const j = (await res.json()) as XSearchResponse;
+  if (!res.ok) {
+    const msg = j.errors?.[0]?.message ?? j.title ?? `HTTP ${res.status}`;
+    throw new Error(`X tweet search failed (${res.status}): ${msg}`);
+  }
+
+  const tweets = j.data ?? [];
+  const users = j.includes?.users ?? [];
+  const usersById = new Map<string, XSearchUser>();
+  for (const u of users) usersById.set(u.id, u);
+
+  const seen = new Set<string>();
+  const authors: XSearchAuthor[] = [];
+  for (const t of tweets) {
+    if (!t.author_id || seen.has(t.author_id)) continue;
+    seen.add(t.author_id);
+    const u = usersById.get(t.author_id);
+    if (!u) continue;
+    authors.push({
+      userId: u.id,
+      handle: u.username,
+      name: u.name,
+      bio: u.description,
+      verified: u.verified,
+      followersCount: u.public_metrics?.followers_count,
+      recentTweet: t.text,
+    });
+  }
+
+  return { authors, tweetsReturned: tweets.length };
+}
+
 /** Send a DM to a specific user. Auth header uses the LINKED USER's token. */
 export async function sendDm(participantId: string, text: string): Promise<{
   dmEventId: string;

@@ -24,7 +24,7 @@ export const GeneratedXDMSchema = z.object({
   template: z
     .string()
     .min(20)
-    .max(500)
+    .max(2000)
     .describe(
       "Template DM avec spintax {a/b/c}. 4-6 groupes spintax, au moins 3 options chacun. Pas de placeholder {firstName} ici — c'est juste de la variation linguistique.",
     ),
@@ -89,7 +89,7 @@ export class GenerateXDMSkill implements BaseSkill<GenerateXDMInput, GeneratedXD
 
   public readonly displayName = 'Generate X DM';
   public readonly category = 'x_dm';
-  public readonly order = 2;
+  public readonly order = 3;
   public readonly type = 'llm' as const;
   public readonly model = CLAUDE_MODEL;
   public readonly prompt = PROMPT;
