@@ -454,10 +454,17 @@ interface DMResult {
   dmEventId?: string;
   error?: string;
 }
+interface SendXDMsCost {
+  userLookupCalls: number;
+  dmSendCalls: number;
+  dmSendSuccesses: number;
+  costUsdEstimate: number;
+}
 interface SendXDMsOutput {
   results: DMResult[];
   sentCount: number;
   failedCount: number;
+  cost: SendXDMsCost;
 }
 let currentXBusiness: XOutreachBusiness | null = null;
 let currentXDM: GeneratedXDM | null = null;
@@ -1410,7 +1417,11 @@ function renderSendResults(out: SendXDMsOutput) {
     })
     .join('');
   els.xSendResultsList.innerHTML = `
-    <p class="muted small">${out.sentCount} envoyés · ${out.failedCount} échoués</p>
+    <p class="muted small">
+      ${out.sentCount} envoyés · ${out.failedCount} échoués
+      · 💰 <strong>$${out.cost.costUsdEstimate.toFixed(4)}</strong>
+      <span class="muted">(${out.cost.userLookupCalls} lookup × $0.010 + ${out.cost.dmSendCalls} send × $0.015)</span>
+    </p>
     ${rows}
   `;
   els.xSendResults.classList.remove('hidden');

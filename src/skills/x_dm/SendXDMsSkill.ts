@@ -7,6 +7,15 @@ import { expandSpintax } from '../runtime/spintax.js';
 const HARD_CAP = 10;
 const DELAY_MS_DEFAULT = 7000;
 
+// X credit-based pay-as-you-go pricing (May 2026):
+//   - DM Interaction (Create):  $0.015 per request   (POST /2/dm_conversations/.../messages)
+//   - User Read:                 $0.010 per resource  (GET /2/users/by/username)
+//   ⇒ one DM (lookup + send) ≈ $0.025
+const PRICING = {
+  userLookupPerCall: 0.010,
+  dmSendPerCall: 0.015,
+} as const;
+
 export const SendXDMsInputSchema = z.object({
   /** Spintax template (or raw text). We auto-expand here too. */
   template: z
@@ -40,10 +49,18 @@ export const DMResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const SendCostSchema = z.object({
+  userLookupCalls: z.number().describe("Nb d'appels /users/by/username (qu'ils aient réussi ou non — l'API facture tous les appels)."),
+  dmSendCalls: z.number().describe("Nb d'appels /dm_conversations/.../messages effectivement tentés."),
+  dmSendSuccesses: z.number().describe("Nb d'envois DM réussis."),
+  costUsdEstimate: z.number().describe('Coût estimé total USD basé sur la grille X pay-as-you-go.'),
+});
+
 export const SendXDMsOutputSchema = z.object({
   results: z.array(DMResultSchema),
   sentCount: z.number(),
   failedCount: z.number(),
+  cost: SendCostSchema,
 });
 export type SendXDMsOutput = z.infer<typeof SendXDMsOutputSchema>;
 
@@ -51,7 +68,7 @@ export type SendXDMsOutput = z.infer<typeof SendXDMsOutputSchema>;
 export class SendXDMsSkill implements BaseSkill<SendXDMsInput, SendXDMsOutput> {
   public readonly name = 'send_x_dms';
   public readonly description =
-    'Envoie un DM X à chaque @handle de la liste, en piochant une variante différente du template Spintax. Cap dur à 10/run + délai obligatoire entre sends pour limiter le risque de ban.';
+    "Envoie un DM X à chaque @handle de la liste, en piochant une variante différente du template Spintax. Cap dur à 10/run + délai obligatoire entre sends. Coût pay-as-you-go: ~$0.025 / DM (lookup $0.010 + send $0.015).";
   public readonly schema = SendXDMsInputSchema;
 
   public readonly displayName = 'Send X DMs';
@@ -72,13 +89,34 @@ export class SendXDMsSkill implements BaseSkill<SendXDMsInput, SendXDMsOutput> {
     const delayMs = input.delayMs ?? DELAY_MS_DEFAULT;
 
     const results: SendXDMsOutput['results'] = [];
+    let userLookupCalls = 0;
+    let dmSendCalls = 0;
+    let dmSendSuccesses = 0;
+
     for (let i = 0; i < handles.length; i++) {
       const handle = handles[i]!;
       // Rotate through variants — keeps a different opener per prospect.
       const variant = variants[i % variants.length]!;
+      let userId: string | undefined;
       try {
+        userLookupCalls++;
         const user = await lookupUserByUsername(handle);
-        const dm = await sendDm(user.id, variant);
+        userId = user.id;
+      } catch (e) {
+        results.push({
+          handle,
+          status: 'failed',
+          variantUsed: variant,
+          error: `lookup failed: ${(e as Error).message}`,
+        });
+        // sleep then continue
+        if (i < handles.length - 1) await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      try {
+        dmSendCalls++;
+        const dm = await sendDm(userId!, variant);
+        dmSendSuccesses++;
         results.push({
           handle,
           status: 'sent',
@@ -99,10 +137,23 @@ export class SendXDMsSkill implements BaseSkill<SendXDMsInput, SendXDMsOutput> {
       }
     }
 
+    const costUsdEstimate = Number(
+      (
+        userLookupCalls * PRICING.userLookupPerCall +
+        dmSendCalls * PRICING.dmSendPerCall
+      ).toFixed(4),
+    );
+
     return {
       results,
       sentCount: results.filter((r) => r.status === 'sent').length,
       failedCount: results.filter((r) => r.status === 'failed').length,
+      cost: {
+        userLookupCalls,
+        dmSendCalls,
+        dmSendSuccesses,
+        costUsdEstimate,
+      },
     };
   }
 }
