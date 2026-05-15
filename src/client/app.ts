@@ -491,12 +491,12 @@ interface FindXProspectsOutput {
   prospects: XProspect[];
   query: string;
   stats: {
-    googleHandlesFound: number;
-    xLookupCalls: number;
+    usersReturned: number;
     bioMatched: number;
     target: number;
     done: boolean;
-    costUsdEstimate: number;
+    costUsdActual?: number;
+    actorRunId?: string;
     searchError?: string;
   };
 }
@@ -1425,22 +1425,29 @@ function renderXProspects(out: FindXProspectsOutput) {
     : `<span class="badge-warn">⚠️ ${out.prospects.length}/${s.target}</span>`;
 
   const errorBlock = s.searchError
-    ? `<div class="error" style="margin:8px 0;padding:10px 12px"><strong>Erreur :</strong><br><code>${escapeHtml(s.searchError)}</code></div>`
+    ? `<div class="error" style="margin:8px 0;padding:10px 12px"><strong>Apify a renvoyé une erreur :</strong><br><code>${escapeHtml(s.searchError)}</code></div>`
     : '';
+
+  const runLink = s.actorRunId
+    ? `<a class="muted" href="https://console.apify.com/actors/runs/${s.actorRunId}" target="_blank" rel="noopener noreferrer">run ${s.actorRunId.slice(0, 10)}…</a>`
+    : '';
+  const costLine = s.costUsdActual !== undefined
+    ? `💰 Coût réel Apify <strong>$${s.costUsdActual.toFixed(4)}</strong>`
+    : '💰 Coût en cours de calcul…';
 
   els.xProspectsStats.innerHTML = `
     ${errorBlock}
-    <div><strong>${s.googleHandlesFound}</strong> handles Google → <strong>${s.xLookupCalls}</strong> looked up via X API → <strong>${s.bioMatched}</strong> bios matchent → <strong>${out.prospects.length}/${s.target}</strong> retournés</div>
-    <div>💰 Coût estimé <strong>$${s.costUsdEstimate.toFixed(4)}</strong> (Google gratuit + X lookup $0.010/user) · query: <code>${escapeHtml(out.query)}</code></div>
+    <div><strong>${s.usersReturned}</strong> profils scrapés → <strong>${s.bioMatched}</strong> bios matchent keywords → <strong>${out.prospects.length}/${s.target}</strong> retournés</div>
+    <div>${costLine} · ${runLink} · searchTerms: <code>${escapeHtml(out.query)}</code></div>
     <div>${doneBadge}</div>
   `;
   els.xProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {
     const msg = s.searchError
-      ? "Erreur — voir l'erreur ci-dessus. Si Google = CAPTCHA, attends 15-30 min."
-      : s.googleHandlesFound === 0
-        ? "Google a retourné 0 profil X. Élargis tes keywords (mots trop niches) et relance."
-        : "Google a trouvé des handles mais aucune bio ne matche les keywords après vérification X API. Édite tes keywords.";
+      ? "Apify a échoué — vérifie ton APIFY_TOKEN et tes crédits."
+      : s.usersReturned === 0
+        ? "Apify n'a retourné aucun profil. Keywords trop niches ? Élargis et relance."
+        : "Apify a trouvé des profils mais aucune bio ne matche les keywords exactement (le scraper inclut aussi les matches sur le nom). Édite tes keywords.";
     els.xProspectsList.innerHTML = `<p class="muted">${msg}</p>`;
   } else {
     for (const p of out.prospects) {

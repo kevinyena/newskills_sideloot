@@ -416,9 +416,8 @@
             </div>
           </div>
           <p class="muted small" style="margin-top:10px">
-            🔍 <strong>Google search</strong> avec <code>(site:x.com OR site:twitter.com) ("kw1" OR ...) -inurl:status -inurl:search</code>
-            → extrait les handles X → vérifie chaque bio via l'API X.
-            Pas d'Apify, pas de tweet search. Light use only (Google bloque les scrapes massifs).
+            🔍 Recherche via <strong>Apify apidojo/twitter-user-scraper</strong> (champ <code>searchTerms</code>).
+            Matche bio + nom + description X. Coût ~$0.016 par run (1 query $0.008 + 20 users × $0.0004).
           </p>
         </div>
       </div>
