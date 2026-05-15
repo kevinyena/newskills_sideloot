@@ -123,24 +123,38 @@ export interface SearchUsersResult {
 }
 
 export interface SearchXUsersParams {
-  /** One or more keyword/phrase search terms. Actor returns users matching ANY. */
+  /** Keywords to search in bio/name/handle. We build an X "People" search URL. */
   searchTerms: string[];
   /** Max users to scrape. */
   maxItems: number;
 }
 
 /**
- * Run `apidojo/twitter-user-scraper` with `searchTerms` (the correct input
- * field for keyword search — NOT `startUrls`, which is for direct profile URLs).
+ * Run `apidojo/twitter-user-scraper` for BIO/NAME keyword search.
+ *
+ * Important findings from live testing:
+ *   - `searchTerms` is actually a HANDLE lookup field (e.g. ["elonmusk"]),
+ *     NOT bio search despite what its label suggests.
+ *   - For bio/name/handle keyword search, we feed `startUrls` with X's
+ *     People search URL: `https://x.com/search?q=KEYWORD&f=user`.
+ *     This is how X surfaces "people whose bio/name/handle matches the query".
  *
  * Disables follower/following/retweeter enrichment — we don't need them
  * and they add cost ($16/1000 each).
+ *
+ * Runtime: ~3 min for 5-20 users. Apify polls in our wrapper.
  */
 export async function searchXUsersByQuery(
   params: SearchXUsersParams,
 ): Promise<SearchUsersResult> {
+  // Build X People search URL from keywords (OR-joined, quoted if multi-word).
+  const query = params.searchTerms
+    .map((t) => (t.includes(' ') ? `"${t}"` : t))
+    .join(' OR ');
+  const searchUrl = `https://x.com/search?q=${encodeURIComponent(query)}&f=user`;
+
   const input = {
-    searchTerms: params.searchTerms,
+    startUrls: [{ url: searchUrl }],
     maxItems: params.maxItems,
     getFollowers: false,
     getFollowing: false,

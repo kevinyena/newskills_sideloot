@@ -17,10 +17,24 @@ const OPEN_DM_HINTS = [
   /📩|📨|💬/,
 ];
 
-function bioMatchesKeywords(bio: string | undefined, keywords: string[]): boolean {
-  if (!bio) return false;
-  const lower = bio.toLowerCase();
-  return keywords.some((k) => lower.includes(k.toLowerCase()));
+/**
+ * Match if any keyword appears in bio, name, OR handle.
+ *
+ * X People search matches across all three fields, so a profile like
+ * @Tradermayne (with "trader" in handle only) should still count — they're
+ * a trader, even if the word doesn't appear in their bio text. Same for
+ * @I_Am_The_ICT (full name = "The Inner Circle Trader").
+ */
+function profileMatchesKeywords(
+  fields: { bio?: string; name?: string; handle?: string },
+  keywords: string[],
+): boolean {
+  const haystack = [fields.bio, fields.name, fields.handle]
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .join(' ')
+    .toLowerCase();
+  if (!haystack) return false;
+  return keywords.some((k) => haystack.includes(k.toLowerCase()));
 }
 function bioSuggestsOpenDms(bio: string | undefined): boolean {
   if (!bio) return false;
@@ -173,16 +187,22 @@ export class FindXProspectsSkill
         return true;
       });
 
-    // Defense in depth: re-check bio match server-side. Apify's keyword
-    // search matches bio/name/description — we only want bio matches for
-    // precision. Drop any result where the keyword is only in the name.
-    const matched = normalized.filter((u) => bioMatchesKeywords(u.bio, input.bioKeywords));
+    // Match across bio + name + handle (X People search covers all three).
+    const matched = normalized.filter((u) =>
+      profileMatchesKeywords(
+        { bio: u.bio, name: u.name, handle: u.handle },
+        input.bioKeywords,
+      ),
+    );
 
     // Score
     const scored: XProspect[] = matched.map((u) => {
       const bio = u.bio ?? '';
-      const lower = bio.toLowerCase();
-      const kwHits = input.bioKeywords.filter((k) => lower.includes(k.toLowerCase())).length;
+      const haystack = [u.bio, u.name, u.handle]
+        .filter((s): s is string => typeof s === 'string' && s.length > 0)
+        .join(' ')
+        .toLowerCase();
+      const kwHits = input.bioKeywords.filter((k) => haystack.includes(k.toLowerCase())).length;
       const openHint = bioSuggestsOpenDms(bio);
       const followersBoost = Math.min(20, Math.log10(Math.max(1, u.followersCount ?? 1)) * 5);
       const score = Math.min(
