@@ -138,8 +138,8 @@ const CATEGORY_DISPLAY: Record<string, { name: string; icon: string; order: numb
   newsletter: { name: 'Newsletter', icon: '📨', order: 2 },
   prospection: { name: 'Choose Prospection', icon: '🎯', order: 3 },
   maps_grounding: { name: 'Maps Grounding', icon: '🗺️', order: 4 },
-  x_dm: { name: 'X DM', icon: '𝕏', order: 5 },
-  tiktok: { name: 'TikTok', icon: '🎵', order: 6 },
+  tiktok: { name: 'TikTok', icon: '🎵', order: 5 },
+  x_dm: { name: 'X DM', icon: '𝕏', order: 6 },
 };
 
 function defaultDisplay(category: string, fallbackOrder: number) {
