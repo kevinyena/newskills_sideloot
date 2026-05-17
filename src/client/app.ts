@@ -2456,12 +2456,53 @@ async function tiktokPostFromFile(file: File, p: TikTokPostParams) {
   }
 }
 
+/**
+ * Renders the "where is my video?" guide that appears whenever an upload
+ * lands in the TikTok inbox (either intentionally or via the auto fallback
+ * from direct-post). API uploads do NOT appear in the profile's "Drafts"
+ * tab — they live in the Inbox/Activity feed, which most users miss.
+ */
+function inboxLocationGuideHtml(opts: { fellBack?: boolean } = {}): string {
+  const intro = opts.fellBack
+    ? `<p style="margin:0 0 8px"><strong>📥 La vidéo a atterri dans ton <em>Inbox</em> TikTok</strong> <span class="muted small">(direct post refusé par TikTok sandbox parce que le compte est public — fallback inbox auto)</span></p>`
+    : `<p style="margin:0 0 8px"><strong>📥 La vidéo a atterri dans ton <em>Inbox</em> TikTok</strong></p>`;
+  return `
+    <div style="margin-top:10px;padding:12px 14px;background:rgba(124,92,255,0.07);border:1px solid var(--border);border-radius:10px">
+      ${intro}
+      <p class="muted small" style="margin:0 0 6px"><strong>⚠️ Elle n'est PAS dans "Drafts" du profile.</strong> Voici exactement où la trouver :</p>
+      <ol class="muted small" style="margin:6px 0 8px 18px;line-height:1.6">
+        <li><strong>Force-quit puis rouvre</strong> l'app TikTok sur ton téléphone (clear le cache local — sinon la notif ne s'affiche pas)</li>
+        <li>Tap l'onglet <strong>Inbox</strong> en bas <span class="muted small">(icône enveloppe/cloche, juste à gauche du Profile)</span></li>
+        <li>Section <strong>"Activity"</strong> ou <strong>"System Notifications"</strong> en haut</li>
+        <li>Cherche une notif type :
+          <ul style="margin:4px 0 4px 18px">
+            <li><em>"You have a draft from an external app"</em></li>
+            <li><em>"Continue editing your video"</em></li>
+            <li><em>"sideloot uploaded a video"</em></li>
+          </ul>
+        </li>
+        <li>Tap dessus → ouvre l'éditeur TikTok avec ta vidéo → ajoute caption/sound/cover → <strong>Post</strong></li>
+      </ol>
+      <details style="margin-top:6px">
+        <summary class="muted small">🔎 Toujours rien après ces étapes ?</summary>
+        <p class="muted small" style="margin-top:6px">
+          Option A : essaie <strong>TikTok Studio</strong> (Profile → menu ☰ en haut à droite → Studio → onglet Inbox).<br>
+          Option B : limitation sandbox connue — les tester accounts ne reçoivent pas toujours les inbox notifs. Workaround : passe ton compte TikTok en <strong>privé</strong> (Settings → Privacy → Private account), relance un upload, le direct post passera et la vidéo apparaîtra publiée (visible privé seulement).<br>
+          Option C : query le statut via le publishId ci-dessus à <code>/api/tiktok/publish-status?publishId=...</code> pour confirmer que TikTok a bien <code>SEND_TO_USER_INBOX</code>.
+        </p>
+      </details>
+    </div>
+  `;
+}
+
 function renderTikTokResult(out: PostTikTokVideoOutput) {
   const statusBadge =
     out.status === 'published'
       ? '<span class="x-linked-badge" style="background:rgba(43,212,160,0.15)">✓ publié</span>'
       : out.status === 'inbox_delivered'
-        ? '<span class="x-linked-badge" style="background:rgba(124,92,255,0.15)">📥 dans drafts TikTok</span>'
+        ? (out.fellBackToInbox
+            ? '<span class="x-linked-badge" style="background:rgba(124,92,255,0.15)">📥 fallback inbox</span>'
+            : '<span class="x-linked-badge" style="background:rgba(124,92,255,0.15)">📥 inbox TikTok</span>')
         : out.status === 'pending'
           ? '<span class="x-linked-badge" style="background:rgba(255,200,0,0.15)">⏳ traitement TikTok en cours</span>'
           : '<span class="x-linked-badge" style="background:rgba(255,80,80,0.15)">✗ échec</span>';
@@ -2472,8 +2513,8 @@ function renderTikTokResult(out: PostTikTokVideoOutput) {
   const failBlock = out.failReason
     ? `<p class="muted small">Raison : <code>${escapeHtml(out.failReason)}</code></p>`
     : '';
-  const inboxHint = out.status === 'inbox_delivered'
-    ? '<p class="muted small">💡 Ouvre l\'app TikTok sur ton téléphone, va dans les drafts, ajoute caption/sound/hashtags et publie.</p>'
+  const inboxGuide = out.status === 'inbox_delivered'
+    ? inboxLocationGuideHtml({ fellBack: out.fellBackToInbox })
     : '';
   els.ttResultBody.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -2483,7 +2524,7 @@ function renderTikTokResult(out: PostTikTokVideoOutput) {
     </div>
     ${postUrl}
     ${failBlock}
-    ${inboxHint}
+    ${inboxGuide}
   `;
   els.ttResult.classList.remove('hidden');
 }
@@ -2612,11 +2653,9 @@ els.ugcPostTikTokBtn.addEventListener('click', async () => {
             : '📥 dans tes drafts TikTok')
       : out.status === 'pending' ? '⏳ traitement TikTok en cours'
       : '✗ échec';
-    const fallbackHint = out.fellBackToInbox
-      ? `<p class="muted small" style="margin-top:6px">⚠️ TikTok sandbox refuse direct post tant que l'app n'est pas auditée OU que ton compte n'est pas privé. On a re-tenté en inbox automatiquement — la vidéo est dans tes drafts. Ouvre l'app TikTok → Drafts → ajoute caption/sound → publie.<br><span class="muted">Pour avoir direct post tout de suite : passe ton compte en privé (Settings → Privacy → Private account). Pour public + auto : attends l'audit.</span></p>`
-      : (out.status === 'inbox_delivered'
-          ? `<p class="muted small" style="margin-top:6px">💡 Ouvre l'app TikTok → Drafts → finalise + publie.</p>`
-          : '');
+    const fallbackHint = out.status === 'inbox_delivered'
+      ? inboxLocationGuideHtml({ fellBack: out.fellBackToInbox })
+      : '';
     const linkBlock = out.publicPostId
       ? ` · <a href="https://www.tiktok.com/video/${escapeAttr(out.publicPostId)}" target="_blank" rel="noopener noreferrer">voir sur TikTok ↗</a>`
       : '';

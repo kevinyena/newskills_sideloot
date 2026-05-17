@@ -513,9 +513,26 @@
             Sinon viens ici pour poster manuellement n'importe quel URI Veo.
           </p>
           <p class="muted small">
-            <strong>Inbox</strong> : la vidéo arrive dans les drafts de l'app TikTok mobile, tu finalises caption/hashtags/musique puis publies à la main. <em>Pas d'audit requis.</em><br>
+            <strong>Inbox</strong> : la vidéo arrive dans l'<em>Inbox</em> de l'app TikTok mobile, tu finalises caption/hashtags/musique puis publies à la main. <em>Pas d'audit requis.</em><br>
             <strong>Direct</strong> : poste live immédiatement avec la caption fournie. <em>Requiert l'audit Content Posting API + scope <code>video.publish</code>.</em>
           </p>
+          <details style="margin-top:10px;padding:10px 14px;background:rgba(124,92,255,0.07);border:1px solid var(--border);border-radius:8px">
+            <summary style="cursor:pointer"><strong>📍 Où trouver la vidéo si elle finit en Inbox ?</strong> <span class="muted small">(elle n'apparaît PAS dans Drafts du profile, c'est le piège classique)</span></summary>
+            <ol class="muted small" style="margin:10px 0 0 20px;line-height:1.7">
+              <li><strong>Force-quit puis rouvre</strong> l'app TikTok sur ton téléphone <span class="muted">(clear le cache local, sinon la notif n'apparaît pas tout de suite)</span></li>
+              <li>Tap l'onglet <strong>Inbox</strong> en bas <span class="muted">(icône enveloppe/cloche, juste à gauche du Profile)</span></li>
+              <li>Section <strong>Activity</strong> ou <strong>System Notifications</strong> en haut</li>
+              <li>Cherche une notif type :
+                <ul style="margin:4px 0 4px 18px">
+                  <li><em>"You have a draft from an external app"</em></li>
+                  <li><em>"Continue editing your video"</em></li>
+                  <li><em>"sideloot uploaded a video"</em></li>
+                </ul>
+              </li>
+              <li>Tap dessus → ouvre l'éditeur TikTok avec ta vidéo → caption/sound/cover → <strong>Post</strong></li>
+            </ol>
+            <p class="muted small" style="margin-top:8px"><strong>Fallback si rien après ces étapes :</strong> ouvre <strong>TikTok Studio</strong> (Profile → ☰ en haut à droite → Studio → onglet Inbox). En sandbox certains tester accounts ne reçoivent pas les push notifs — c'est une limitation connue.</p>
+          </details>
         </div>
         <div class="card-section">
           <div class="kicker" style="margin-bottom:6px">Source vidéo</div>
