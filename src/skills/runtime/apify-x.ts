@@ -110,6 +110,14 @@ export interface ApifyXUser {
   isVerified?: boolean;
   isBlueVerified?: boolean;
   verified?: boolean;
+  /** Protected / private account — DMs from non-followers will be rejected. */
+  protected?: boolean;
+  isProtected?: boolean;
+  isPrivate?: boolean;
+  /** Some scrapers expose explicit DM-acceptance flags. */
+  canDm?: boolean;
+  canBeMessaged?: boolean;
+  acceptsDmsFromAll?: boolean;
   profilePicture?: string;
   url?: string;
 }
@@ -208,6 +216,10 @@ export function normalizeApifyXUser(u: ApifyXUser): {
   bio?: string;
   followersCount?: number;
   verified?: boolean;
+  /** True iff the profile is private/protected. DM sends will fail. */
+  isProtected: boolean;
+  /** True iff Apify explicitly says the account accepts DMs. Undefined when unknown. */
+  canDm?: boolean;
 } | null {
   const handle = u.username ?? u.userName ?? u.screenName;
   if (!handle) return null;
@@ -215,6 +227,13 @@ export function normalizeApifyXUser(u: ApifyXUser): {
   const bio = u.description ?? u.bio;
   const followersCount = u.followers ?? u.followersCount;
   const verified = u.isVerified ?? u.isBlueVerified ?? u.verified;
+  // Coerce the various private-account flags into one boolean.
+  const isProtected = Boolean(u.protected ?? u.isProtected ?? u.isPrivate ?? false);
+  // canDm is unknown unless the scraper explicitly exposes a positive flag.
+  let canDm: boolean | undefined;
+  if (typeof u.canDm === 'boolean') canDm = u.canDm;
+  else if (typeof u.canBeMessaged === 'boolean') canDm = u.canBeMessaged;
+  else if (typeof u.acceptsDmsFromAll === 'boolean') canDm = u.acceptsDmsFromAll;
   return {
     userId,
     handle: handle.replace(/^@/, ''),
@@ -222,5 +241,7 @@ export function normalizeApifyXUser(u: ApifyXUser): {
     bio,
     followersCount,
     verified,
+    isProtected,
+    canDm,
   };
 }

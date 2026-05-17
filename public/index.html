@@ -103,7 +103,9 @@
         <p class="muted hint hidden" id="audioHint">🔊 Si tu n'entends rien, vérifie que le lecteur n'est pas muet.</p>
         <div class="card-actions hidden" id="videoActions">
           <a id="downloadBtn" class="btn primary" download="ai-ugc.mp4">⬇ Télécharger</a>
+          <button id="ugcPostTikTokBtn" class="btn primary" style="background:linear-gradient(135deg,#ff0050,#00f2ea);color:#000;font-weight:700">🎵 Post to TikTok</button>
         </div>
+        <p class="muted small hidden" id="ugcTikTokInline" style="margin-top:8px"></p>
       </div>
     </section>
 
@@ -346,9 +348,12 @@
         <label class="field">
           <span>Langue du DM</span>
           <select id="xLang">
+            <option value="en" selected>English</option>
             <option value="fr">Français</option>
-            <option value="en">English</option>
             <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
           </select>
         </label>
         <label class="field">
@@ -380,9 +385,25 @@
             <option value="30">30</option>
           </select>
         </label>
-        <button id="xRandomBtn" class="btn primary">🎲 Random business</button>
-        <button id="xFindBtn" class="btn primary" disabled>🔍 Find prospects</button>
-        <button id="xGenDMBtn" class="btn primary" disabled>✍️ Générer le DM</button>
+        <label class="field">
+          <span>Localisation</span>
+          <select id="xLocation">
+            <option value="usa" selected>🇺🇸 USA / English</option>
+            <option value="worldwide">🌍 Worldwide</option>
+          </select>
+        </label>
+        <button id="xAutoBtn" class="btn primary" style="background:linear-gradient(135deg,#7c5cff,#2bd4a0);font-weight:700">🚀 Auto : random → find → DM → send</button>
+        <button id="xRandomBtn" class="btn ghost">🎲 Random business</button>
+        <button id="xFindBtn" class="btn ghost" disabled>🔍 Find prospects</button>
+        <button id="xGenDMBtn" class="btn ghost" disabled>✍️ Générer le DM</button>
+      </div>
+      <div id="xAutoProgress" class="hidden" style="margin:12px 0;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:rgba(124,92,255,0.06)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div class="spinner"></div>
+          <strong id="xAutoStepLabel">Démarrage…</strong>
+        </div>
+        <div id="xAutoStepDetail" class="muted small"></div>
+        <div id="xAutoCostSummary" class="muted small" style="margin-top:6px"></div>
       </div>
 
       <div id="xBusinessCard" class="card hidden">
@@ -400,7 +421,7 @@
           <div class="script-field"><span class="lbl">Segment</span><p id="xSegment"></p></div>
           <div class="script-field"><span class="lbl">Pain</span><p id="xPain"></p></div>
           <div class="script-field">
-            <span class="lbl">Bio keywords <span class="muted small">— mots qu'on cherche dans la bio des profils X</span></span>
+            <span class="lbl">Bio keywords <span class="muted small">— mots qu'on cherche dans la bio, le handle ou le nom des profils X</span></span>
             <div id="xBioKeywords" class="tag-list editable"></div>
             <div class="tag-add">
               <input id="xBioKwAdd" type="text" placeholder="ajouter un keyword (ex: trader)" />
@@ -417,7 +438,8 @@
           </div>
           <p class="muted small" style="margin-top:10px">
             🔍 Recherche via <strong>Apify apidojo/twitter-user-scraper</strong> sur <code>x.com/search?q=...&f=user</code>.
-            Matche dans <strong>bio + nom + handle</strong>. Durée ~2-4 min par run. Coût ~$0.016 par run.
+            <strong>Filtres actifs</strong> : (1) keyword dans bio/handle/nom, (2) bio anglophone (USA preset), (3) <strong>DMs probablement ouverts</strong> (hint bio 📩 / "DM me" OR ≤5k followers).
+            Itère + expand keywords automatiquement jusqu'à atteindre le nombre demandé. ~30s-2 min par itération.
           </p>
         </div>
       </div>
@@ -428,7 +450,7 @@
           <div id="xProspectsStats" class="muted small"></div>
         </div>
         <div id="xProspectsList" class="prospects-list"></div>
-        <p class="muted hint">💡 Les bios sont matchées contre les keywords ICP. Les profils avec un hint d'open DMs (📩, "DMs open", etc.) sont remontés en premier.</p>
+        <p class="muted hint">💡 Filtre bio + handle + nom. Les profils avec un hint d'open DMs (📩, "DMs open", etc.) sont remontés en premier.</p>
       </div>
 
       <div id="xDMCard" class="card hidden">
@@ -447,7 +469,7 @@
       <div id="xSendCard" class="card hidden">
         <div class="card-section">
           <div class="kicker">Envoi DM</div>
-          <p class="muted small">💰 X pay-as-you-go : ~$0.025 / DM (lookup $0.010 + send $0.015) — crédits prépayés sur developer.x.com. Cap à 10 handles / run · délai 7s entre envois.</p>
+          <p class="muted small">💰 X pay-as-you-go : ~$0.025 / DM (lookup $0.010 + send $0.015) — crédits prépayés sur developer.x.com. Cap à 10 handles / run · délai randomisé <strong>5-12s</strong> entre envois pour paraître humain.</p>
           <label class="field">
             <span>@handles à contacter (un par ligne, max 10)</span>
             <textarea id="xHandles" placeholder="@elonmusk&#10;@sama&#10;@levelsio" rows="6"></textarea>
@@ -461,6 +483,92 @@
         <div id="xSendResults" class="card-section hidden">
           <div class="kicker">Résultats</div>
           <div id="xSendResultsList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========== Panel: TikTok =========== -->
+    <section class="skill-panel hidden" data-panel="tiktok">
+      <!-- OAuth status -->
+      <div class="x-auth-bar">
+        <div id="ttAuthStatus" class="muted">Statut compte TikTok : <em>chargement…</em></div>
+        <div class="x-auth-actions">
+          <button id="ttLinkBtn" class="btn primary">🎵 Link TikTok account</button>
+          <button id="ttUnlinkBtn" class="btn ghost hidden">Délier</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-section">
+          <div class="kicker">Post to TikTok</div>
+          <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(255,200,0,0.08);margin-bottom:12px">
+            <strong>🧪 Mode Sandbox</strong> <span class="muted">(app TikTok en review)</span>
+            <p class="muted small" style="margin:6px 0 0 0">
+              Tant que l'app est en review, TikTok n'autorise les posts que vers des <strong>tester accounts</strong> ajoutés dans la console Developer (Manage app → Sandbox → Add tester).
+              Les vidéos uploadées sont automatiquement <strong>privées (SELF_ONLY)</strong>. Une fois l'audit Content Posting API passé, tu pourras basculer en Direct + Public.
+            </p>
+          </div>
+          <p class="muted small">
+            Génère d'abord une vidéo UGC dans <strong>Video UGC</strong> — le bouton <em>Post to TikTok</em> y apparaît directement.
+            Sinon viens ici pour poster manuellement n'importe quel URI Veo.
+          </p>
+          <p class="muted small">
+            <strong>Inbox</strong> : la vidéo arrive dans les drafts de l'app TikTok mobile, tu finalises caption/hashtags/musique puis publies à la main. <em>Pas d'audit requis.</em><br>
+            <strong>Direct</strong> : poste live immédiatement avec la caption fournie. <em>Requiert l'audit Content Posting API + scope <code>video.publish</code>.</em>
+          </p>
+        </div>
+        <div class="card-section">
+          <div class="kicker" style="margin-bottom:6px">Source vidéo</div>
+          <div class="tt-source-tabs" style="display:flex;gap:8px;margin-bottom:10px">
+            <button id="ttSourceVeoBtn" class="btn ghost tt-source-active" data-source="veo">📹 Vidéo Veo</button>
+            <button id="ttSourceFileBtn" class="btn ghost" data-source="file">⬆️ Upload fichier</button>
+          </div>
+
+          <div id="ttSourceVeoPanel">
+            <label class="field">
+              <span>Veo videoUri</span>
+              <input id="ttVideoUri" type="text" placeholder="Auto-rempli après une génération Veo, ou colle un URI manuellement" />
+            </label>
+          </div>
+
+          <div id="ttSourceFilePanel" class="hidden">
+            <label class="field">
+              <span>Fichier vidéo (.mp4, .mov, max 64 MB)</span>
+              <input id="ttFileInput" type="file" accept="video/mp4,video/quicktime,video/*" />
+            </label>
+            <p id="ttFileInfo" class="muted small hidden"></p>
+          </div>
+
+          <div class="controls" style="margin-top:12px">
+            <label class="field">
+              <span>Mode</span>
+              <select id="ttMode">
+                <option value="direct" selected>Direct post (sandbox: privé seulement)</option>
+                <option value="inbox">Inbox (draft TikTok app)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Privacy (direct only)</span>
+              <select id="ttPrivacy">
+                <option value="SELF_ONLY" selected>Self only (sandbox)</option>
+                <option value="MUTUAL_FOLLOW_FRIENDS">Friends</option>
+                <option value="PUBLIC_TO_EVERYONE">Public</option>
+              </select>
+            </label>
+          </div>
+          <label class="field">
+            <span>Caption (optionnel, ignoré en mode Inbox)</span>
+            <textarea id="ttCaption" rows="3" placeholder="Caption + hashtags pour le post direct"></textarea>
+          </label>
+          <button id="ttPostBtn" class="btn primary">🚀 Poster sur TikTok</button>
+        </div>
+        <div id="ttStatus" class="status hidden">
+          <div class="spinner"></div>
+          <span id="ttStatusText">Upload en cours…</span>
+        </div>
+        <div id="ttResult" class="card-section hidden">
+          <div class="kicker">Résultat</div>
+          <div id="ttResultBody"></div>
         </div>
       </div>
     </section>

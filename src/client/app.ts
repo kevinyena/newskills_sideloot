@@ -278,9 +278,15 @@ const els = {
   xBiz: $<HTMLSelectElement>('xBiz'),
   xVariantCount: $<HTMLSelectElement>('xVariantCount'),
   xProspectTarget: $<HTMLSelectElement>('xProspectTarget'),
+  xLocation: $<HTMLSelectElement>('xLocation'),
+  xAutoBtn: $<HTMLButtonElement>('xAutoBtn'),
   xRandomBtn: $<HTMLButtonElement>('xRandomBtn'),
   xFindBtn: $<HTMLButtonElement>('xFindBtn'),
   xGenDMBtn: $<HTMLButtonElement>('xGenDMBtn'),
+  xAutoProgress: $('xAutoProgress'),
+  xAutoStepLabel: $('xAutoStepLabel'),
+  xAutoStepDetail: $('xAutoStepDetail'),
+  xAutoCostSummary: $('xAutoCostSummary'),
   xProspectsCard: $('xProspectsCard'),
   xProspectsCount: $('xProspectsCount'),
   xProspectsStats: $('xProspectsStats'),
@@ -311,7 +317,34 @@ const els = {
   xSendStatusText: $('xSendStatusText'),
   xSendResults: $('xSendResults'),
   xSendResultsList: $('xSendResultsList'),
+  // TikTok inline on Video UGC card
+  ugcPostTikTokBtn: $<HTMLButtonElement>('ugcPostTikTokBtn'),
+  ugcTikTokInline: $('ugcTikTokInline'),
+  // TikTok panel
+  ttAuthStatus: $('ttAuthStatus'),
+  ttLinkBtn: $<HTMLButtonElement>('ttLinkBtn'),
+  ttUnlinkBtn: $<HTMLButtonElement>('ttUnlinkBtn'),
+  ttVideoUri: $<HTMLInputElement>('ttVideoUri'),
+  ttMode: $<HTMLSelectElement>('ttMode'),
+  ttPrivacy: $<HTMLSelectElement>('ttPrivacy'),
+  ttCaption: $<HTMLTextAreaElement>('ttCaption'),
+  ttPostBtn: $<HTMLButtonElement>('ttPostBtn'),
+  ttStatus: $('ttStatus'),
+  ttStatusText: $('ttStatusText'),
+  ttResult: $('ttResult'),
+  ttResultBody: $('ttResultBody'),
+  // Source toggle: post a Veo URI vs upload a local file
+  ttSourceVeoBtn: $<HTMLButtonElement>('ttSourceVeoBtn'),
+  ttSourceFileBtn: $<HTMLButtonElement>('ttSourceFileBtn'),
+  ttSourceVeoPanel: $('ttSourceVeoPanel'),
+  ttSourceFilePanel: $('ttSourceFilePanel'),
+  ttFileInput: $<HTMLInputElement>('ttFileInput'),
+  ttFileInfo: $('ttFileInfo'),
 };
+
+/** Which video source the TikTok panel is currently using. */
+type TikTokSource = 'veo' | 'file';
+let tiktokSource: TikTokSource = 'veo';
 
 // ---------- State ----------
 let SECTIONS: SerializedSection[] = [];
@@ -459,10 +492,12 @@ interface XStatusResp {
 }
 interface DMResult {
   handle: string;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'likely_sent' | 'failed';
   variantUsed?: string;
   dmEventId?: string;
   error?: string;
+  chatUrl?: string;
+  failureKind?: 'lookup_not_found' | 'lookup_other' | 'x_refused' | 'x_other';
 }
 interface SendXDMsCost {
   userLookupCalls: number;
@@ -474,6 +509,8 @@ interface SendXDMsOutput {
   results: DMResult[];
   sentCount: number;
   failedCount: number;
+  skippedCount: number;
+  stoppedEarly: boolean;
   cost: SendXDMsCost;
 }
 interface XProspect {
@@ -487,19 +524,45 @@ interface XProspect {
   openDmsHint: boolean;
   score: number;
 }
+interface FindXProspectsAttempt {
+  iteration: number;
+  terms: string[];
+  maxItems: number;
+  returned: number;
+  bioMatched: number;
+  droppedProtected: number;
+  droppedNonEnglish: number;
+  droppedClosedDms: number;
+  costUsdActual?: number;
+  actorRunId?: string;
+}
 interface FindXProspectsOutput {
   prospects: XProspect[];
   query: string;
   stats: {
     usersReturned: number;
     bioMatched: number;
+    droppedProtected: number;
+    droppedNonEnglish: number;
+    droppedClosedDms: number;
     target: number;
     done: boolean;
+    iterations: number;
+    attempts: FindXProspectsAttempt[];
     costUsdActual?: number;
-    actorRunId?: string;
+    actorRunIds: string[];
     searchError?: string;
   };
 }
+/** Last Veo videoUri generated in the UGC panel — pre-fills the TikTok form. */
+let lastGeneratedVeoUri: string | null = null;
+/** Business + video script captured when the UGC video was generated. Used
+ *  to auto-generate a TikTok caption + hashtags after the video is done. */
+let lastUgcBusiness: Business | null = null;
+let lastUgcVideoScript: VideoScript | null = null;
+/** TikTok caption auto-generated right after the UGC video completes. */
+let lastTikTokCaption: { caption: string; captionBody: string; hashtags: string[] } | null = null;
+
 let currentXBusiness: XOutreachBusiness | null = null;
 let currentXProspects: XProspect[] = [];
 let currentXDM: GeneratedXDM | null = null;
@@ -767,6 +830,14 @@ function pollVeoOperation(name: string) {
           els.audioHint.classList.remove('hidden');
           els.downloadBtn.href = proxied;
           els.videoActions.classList.remove('hidden');
+          // Surface to TikTok panel: URI + auto-generated caption from the business.
+          lastGeneratedVeoUri = data.videoUri;
+          lastUgcBusiness = currentBusiness;
+          lastUgcVideoScript = currentVideo;
+          if (els.ttVideoUri) els.ttVideoUri.value = data.videoUri;
+          // Fire-and-forget caption generation. Don't block the user — the
+          // caption will be ready by the time they navigate to TikTok panel.
+          void autoGenerateTikTokCaption();
         }
         els.ugcGenVideoBtn.disabled = false;
       }
@@ -1362,16 +1433,7 @@ async function xRandomBusiness() {
       { businessType?: string; languageName: string },
       XOutreachBusiness
     >('create_x_outreach_business', { businessType, languageName });
-
-    const b = currentXBusiness;
-    els.xName.textContent = b.name;
-    els.xType.textContent = b.type;
-    els.xTicket.textContent = b.icp.estimatedTicket;
-    els.xPitch.textContent = b.pitch;
-    els.xSegment.textContent = b.icp.segment;
-    els.xPain.textContent = b.icp.pain;
-    renderEditableTags(els.xBioKeywords, b.icp.xBioKeywords);
-    renderEditableTags(els.xTopics, b.icp.xTopics);
+    renderXBusiness(currentXBusiness);
     els.xBusinessCard.classList.remove('hidden');
     // After business → next step is Find prospects (not Generate DM directly)
     els.xFindBtn.disabled = false;
@@ -1381,6 +1443,17 @@ async function xRandomBusiness() {
     els.xRandomBtn.disabled = false;
     els.xRandomBtn.textContent = original;
   }
+}
+
+function renderXBusiness(b: XOutreachBusiness) {
+  els.xName.textContent = b.name;
+  els.xType.textContent = b.type;
+  els.xTicket.textContent = b.icp.estimatedTicket;
+  els.xPitch.textContent = b.pitch;
+  els.xSegment.textContent = b.icp.segment;
+  els.xPain.textContent = b.icp.pain;
+  renderEditableTags(els.xBioKeywords, b.icp.xBioKeywords);
+  renderEditableTags(els.xTopics, b.icp.xTopics);
 }
 
 async function xFindProspects() {
@@ -1428,26 +1501,62 @@ function renderXProspects(out: FindXProspectsOutput) {
     ? `<div class="error" style="margin:8px 0;padding:10px 12px"><strong>Apify a renvoyé une erreur :</strong><br><code>${escapeHtml(s.searchError)}</code></div>`
     : '';
 
-  const runLink = s.actorRunId
-    ? `<a class="muted" href="https://console.apify.com/actors/runs/${s.actorRunId}" target="_blank" rel="noopener noreferrer">run ${s.actorRunId.slice(0, 10)}…</a>`
+  const runLinks = s.actorRunIds.length
+    ? s.actorRunIds
+        .map(
+          (id, i) =>
+            `<a class="muted" href="https://console.apify.com/actors/runs/${id}" target="_blank" rel="noopener noreferrer">run #${i + 1} (${id.slice(0, 8)}…)</a>`,
+        )
+        .join(' · ')
     : '';
   const costLine = s.costUsdActual !== undefined
-    ? `💰 Coût réel Apify <strong>$${s.costUsdActual.toFixed(4)}</strong>`
+    ? `💰 Coût total Apify <strong>$${s.costUsdActual.toFixed(4)}</strong>`
     : '💰 Coût en cours de calcul…';
+
+  const attemptsTable = s.attempts.length
+    ? `<details style="margin-top:6px"><summary class="muted small">📊 Détail par itération (${s.iterations})</summary>
+        <table class="attempts-table" style="margin-top:6px;font-size:12px;border-collapse:collapse">
+          <thead><tr style="text-align:left;color:var(--muted)">
+            <th style="padding:2px 8px">#</th>
+            <th style="padding:2px 8px">Query</th>
+            <th style="padding:2px 8px">maxItems</th>
+            <th style="padding:2px 8px">Profils</th>
+            <th style="padding:2px 8px">Bio ✓</th>
+            <th style="padding:2px 8px">$</th>
+          </tr></thead>
+          <tbody>
+            ${s.attempts
+              .map(
+                (a) => `<tr>
+                  <td style="padding:2px 8px">${a.iteration}</td>
+                  <td style="padding:2px 8px"><code>${escapeHtml(a.terms.join(' OR '))}</code></td>
+                  <td style="padding:2px 8px">${a.maxItems}</td>
+                  <td style="padding:2px 8px">${a.returned}</td>
+                  <td style="padding:2px 8px">${a.bioMatched}</td>
+                  <td style="padding:2px 8px">${a.costUsdActual !== undefined ? '$' + a.costUsdActual.toFixed(4) : '—'}</td>
+                </tr>`,
+              )
+              .join('')}
+          </tbody>
+        </table>
+      </details>`
+    : '';
 
   els.xProspectsStats.innerHTML = `
     ${errorBlock}
-    <div><strong>${s.usersReturned}</strong> profils scrapés → <strong>${s.bioMatched}</strong> bios matchent keywords → <strong>${out.prospects.length}/${s.target}</strong> retournés</div>
-    <div>${costLine} · ${runLink} · searchTerms: <code>${escapeHtml(out.query)}</code></div>
+    <div><strong>${s.usersReturned}</strong> profils scrapés (${s.iterations} itération${s.iterations > 1 ? 's' : ''}) → <strong>${s.bioMatched}</strong> matchent (bio/handle/nom)${s.droppedProtected > 0 ? ` → <strong>${s.droppedProtected}</strong> privés` : ''}${s.droppedNonEnglish > 0 ? ` → <strong>${s.droppedNonEnglish}</strong> non-anglais` : ''}${s.droppedClosedDms > 0 ? ` → <strong>${s.droppedClosedDms}</strong> DMs fermés probables` : ''} → <strong>${out.prospects.length}/${s.target}</strong> DM-ables retournés</div>
+    <div>${costLine}${runLinks ? ' · ' + runLinks : ''}</div>
+    <div class="muted small">searchTerms initiaux : <code>${escapeHtml(out.query)}</code></div>
     <div>${doneBadge}</div>
+    ${attemptsTable}
   `;
   els.xProspectsList.innerHTML = '';
   if (out.prospects.length === 0) {
     const msg = s.searchError
-      ? "Apify a échoué — vérifie ton APIFY_TOKEN et tes crédits."
+      ? `Apify a échoué après ${s.iterations} itération${s.iterations > 1 ? 's' : ''} — voir le message ci-dessus.`
       : s.usersReturned === 0
         ? "Apify n'a retourné aucun profil. Keywords trop niches ? Élargis et relance."
-        : "Apify a trouvé des profils mais aucune bio ne matche les keywords exactement (le scraper inclut aussi les matches sur le nom). Édite tes keywords.";
+        : "Aucun profil ne matche tes keywords (bio/handle/nom). Édite-les (synonymes, variantes) et relance.";
     els.xProspectsList.innerHTML = `<p class="muted">${msg}</p>`;
   } else {
     for (const p of out.prospects) {
@@ -1560,17 +1669,13 @@ async function xSendDMs() {
   els.xSendBtn.disabled = true;
   els.xSendStatus.classList.remove('hidden');
   els.xSendResults.classList.add('hidden');
-  els.xSendStatusText.textContent = `Envoi de ${handles.length} DMs (délai 7s entre chaque)…`;
+  els.xSendStatusText.textContent = `Envoi de ${handles.length} DMs (délai 5-12s randomisé)…`;
 
   try {
-    const out = await runSkill<
-      { template: string; handles: string[]; variants: string[]; delayMs: number },
-      SendXDMsOutput
-    >('send_x_dms', {
+    const out = await sendDMsLive({
       template: currentXDM.template,
       handles,
       variants: currentXDM.variants,
-      delayMs: 7000,
     });
     renderSendResults(out);
   } catch (e) {
@@ -1581,32 +1686,583 @@ async function xSendDMs() {
   }
 }
 
-function renderSendResults(out: SendXDMsOutput) {
+// ---------- Live send via SSE ----------
+
+interface SendDmsLiveInput {
+  template: string;
+  handles: string[];
+  variants: string[];
+  delayMinMs?: number;
+  delayMaxMs?: number;
+  targetSuccesses?: number;
+  /** Optional candidate metadata, used to render rich rows (name/followers/bio). */
+  candidates?: Array<{
+    handle: string;
+    name?: string;
+    bio?: string;
+    followersCount?: number;
+    verified?: boolean;
+    score?: number;
+  }>;
+}
+
+interface SendProgressStart { kind: 'start'; total: number; targetSuccesses: number; variants: string[]; delayMinMs: number; delayMaxMs: number }
+interface SendProgressAttempt { kind: 'attempt'; index: number; handle: string; variant: string }
+interface SendProgressResult { kind: 'result'; index: number; result: SendXDMsOutput['results'][number] }
+interface SendProgressDelay { kind: 'delay'; ms: number; nextHandle: string }
+interface SendProgressSkipped { kind: 'skipped'; index: number; handle: string; reason: 'target_reached' }
+interface SendProgressDone { kind: 'done'; final: SendXDMsOutput }
+type SendProgressEvent =
+  | SendProgressStart
+  | SendProgressAttempt
+  | SendProgressResult
+  | SendProgressDelay
+  | SendProgressSkipped
+  | SendProgressDone;
+
+/**
+ * Streams the send via SSE. Each event re-renders the in-progress results
+ * card so the user sees each handle flip from "sending…" to ✓/✗ live.
+ */
+async function sendDMsLive(
+  input: SendDmsLiveInput,
+  onEvent?: (e: SendProgressEvent) => void,
+): Promise<SendXDMsOutput> {
+  // Seed results card with placeholders so the user sees the queue immediately.
+  // If candidates metadata is provided, render rich rows with name/followers/bio.
+  const richCandidates =
+    input.candidates && input.candidates.length === input.handles.length
+      ? input.candidates
+      : input.handles.map((h) => ({ handle: h }));
+  initLiveResults(richCandidates);
+  els.xSendResults.classList.remove('hidden');
+
+  // Don't send the `candidates` field to the server — only the skill schema fields.
+  const { candidates: _omit, ...body } = input;
+  void _omit;
+  const res = await fetch('/api/x-dm/send-stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`send-stream HTTP ${res.status}: ${await res.text()}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let final: SendXDMsOutput | undefined;
+
+  const handleEvent = (eventName: string, dataJson: string) => {
+    let data: SendProgressEvent;
+    try { data = JSON.parse(dataJson); } catch { return; }
+    if (eventName === 'error') {
+      throw new Error((data as unknown as { error: string }).error ?? 'stream error');
+    }
+    onEvent?.(data);
+    switch (data.kind) {
+      case 'attempt':
+        updateLiveRow(data.index, 'sending', data.handle, data.variant);
+        break;
+      case 'result':
+        updateLiveRowFromResult(data.index, data.result);
+        break;
+      case 'delay':
+        break;
+      case 'skipped':
+        updateLiveRowSkipped(data.index);
+        break;
+      case 'done':
+        final = data.final;
+        break;
+    }
+  };
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE events are separated by blank lines.
+    let sep;
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const raw = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      if (!raw.trim() || raw.startsWith(':')) continue; // comment / heartbeat
+      let eventName = 'message';
+      const dataLines: string[] = [];
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+        else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+      }
+      if (dataLines.length) handleEvent(eventName, dataLines.join('\n'));
+    }
+  }
+
+  if (!final) throw new Error('Stream closed without a final result');
+  return final;
+}
+
+function initLiveResults(
+  candidates: Array<{
+    handle: string;
+    name?: string;
+    bio?: string;
+    followersCount?: number;
+    verified?: boolean;
+    score?: number;
+  }>,
+) {
+  els.xSendResultsList.innerHTML = `
+    <p class="muted small" id="xLiveProgressLine">⏳ 0 envoyés · 0 échoués · ${candidates.length} en attente</p>
+    ${candidates
+      .map((c, i) => {
+        const verifiedBadge = c.verified ? '<span class="tag" style="color:var(--accent);font-size:11px">verified</span>' : '';
+        const followers = c.followersCount !== undefined
+          ? `<span class="muted small">${formatFollowers(c.followersCount)} followers</span>`
+          : '';
+        const scoreBadge = c.score !== undefined
+          ? `<span class="muted small">score ${c.score}</span>`
+          : '';
+        const bio = c.bio
+          ? `<div class="muted small" style="margin-top:4px;line-height:1.35">${escapeHtml(c.bio.slice(0, 180))}${c.bio.length > 180 ? '…' : ''}</div>`
+          : '';
+        return `
+        <div class="send-result-rich" id="xLiveRow-${i}" style="border-bottom:1px solid var(--border);padding:10px 12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0">
+              <a class="send-result-handle" href="https://x.com/${escapeAttr(c.handle)}" target="_blank" rel="noopener noreferrer" style="font-weight:700">@${escapeHtml(c.handle)}</a>
+              ${c.name ? `<span class="muted" style="font-size:13px">— ${escapeHtml(c.name)}</span>` : ''}
+              ${verifiedBadge}
+              ${followers}
+              ${scoreBadge}
+            </div>
+            <span class="send-result-status-pending" id="xLiveStatus-${i}" style="font-weight:600">⋯ en attente</span>
+          </div>
+          ${bio}
+          <div class="muted small" id="xLiveDetail-${i}" style="margin-top:6px;font-style:italic"></div>
+        </div>`;
+      })
+      .join('')}
+  `;
+}
+
+function updateLiveRow(index: number, state: 'sending', handle: string, variant: string) {
+  const statusEl = document.getElementById(`xLiveStatus-${index}`);
+  const detailEl = document.getElementById(`xLiveDetail-${index}`);
+  if (statusEl) {
+    statusEl.className = 'send-result-status-pending';
+    statusEl.textContent = state === 'sending' ? '⏳ envoi…' : state;
+  }
+  if (detailEl) detailEl.textContent = variant.length > 100 ? variant.slice(0, 100) + '…' : variant;
+  void handle;
+}
+
+/** Marks a candidate as "not attempted" because target successes was reached. */
+function updateLiveRowSkipped(index: number) {
+  const statusEl = document.getElementById(`xLiveStatus-${index}`);
+  const detailEl = document.getElementById(`xLiveDetail-${index}`);
+  if (statusEl) {
+    statusEl.className = 'send-result-status-pending';
+    statusEl.textContent = '⊘ skip (cible atteinte)';
+  }
+  if (detailEl) detailEl.textContent = '';
+}
+
+function updateLiveRowFromResult(index: number, result: SendXDMsOutput['results'][number]) {
+  // eslint-disable-next-line no-console
+  console.log(`[sse] result #${index} @${result.handle}: ${result.status}`);
+  const statusEl = document.getElementById(`xLiveStatus-${index}`);
+  const detailEl = document.getElementById(`xLiveDetail-${index}`);
+  const progressLine = document.getElementById('xLiveProgressLine');
+  if (statusEl) {
+    statusEl.className = `send-result-status-${result.status === 'failed' ? 'failed' : 'sent'}`;
+    if (result.status === 'sent') {
+      statusEl.textContent = '✓ envoyé';
+    } else if (result.status === 'likely_sent') {
+      statusEl.textContent = '✓ envoyé (vérifié)';
+    } else {
+      const kind = result.failureKind;
+      const label =
+        kind === 'x_refused' ? '✗ X a refusé' :
+        kind === 'lookup_not_found' ? '❓ user introuvable' :
+        kind === 'lookup_other' ? '⚠️ lookup échec' :
+        '✗ échoué';
+      statusEl.textContent = label;
+    }
+  }
+  if (detailEl) {
+    // Build detail HTML: variant or error, plus a "vérifier" link to the X chat
+    // so the user can always manually confirm what landed.
+    const text = result.status === 'failed'
+      ? (result.error ?? 'unknown error')
+      : (result.variantUsed ?? '');
+    const trimmed = text.length > 140 ? text.slice(0, 140) + '…' : text;
+    const chatLink = result.chatUrl
+      ? ` · <a href="${result.chatUrl}" target="_blank" rel="noopener noreferrer" class="muted small">vérifier sur X ↗</a>`
+      : '';
+    detailEl.innerHTML = `${escapeHtml(trimmed)}${chatLink}`;
+  }
+  // Recount across the rendered rows.
+  if (progressLine) {
+    const sent = document.querySelectorAll('.send-result-status-sent').length;
+    const failed = document.querySelectorAll('.send-result-status-failed').length;
+    const total = document.querySelectorAll('[id^="xLiveRow-"]').length;
+    progressLine.textContent = `✓ ${sent} envoyés · ✗ ${failed} échoués · ⏳ ${Math.max(0, total - sent - failed)} en attente`;
+  }
+}
+
+function renderSendResults(
+  out: SendXDMsOutput,
+  candidatesByHandle?: Map<string, XProspect>,
+) {
   const rows = out.results
     .map((r) => {
-      const statusClass = `send-result-status-${r.status}`;
-      const statusEmoji = r.status === 'sent' ? '✓' : '✗';
-      const detail = r.status === 'sent'
-        ? `<span class="send-result-variant">${escapeHtml(r.variantUsed ?? '')}</span>`
-        : `<span class="send-result-variant">${escapeHtml(r.error ?? 'unknown error')}</span>`;
+      const c = candidatesByHandle?.get(r.handle.toLowerCase());
+      const verifiedBadge = c?.verified ? '<span class="tag" style="color:var(--accent);font-size:11px">verified</span>' : '';
+      const followers = c?.followersCount !== undefined
+        ? `<span class="muted small">${formatFollowers(c.followersCount)} followers</span>` : '';
+      const bio = c?.bio
+        ? `<div class="muted small" style="margin-top:4px;line-height:1.35">${escapeHtml(c.bio.slice(0, 180))}${c.bio.length > 180 ? '…' : ''}</div>`
+        : '';
+      let statusLabel: string;
+      let statusClass: string;
+      if (r.status === 'sent') {
+        statusLabel = '✓ envoyé';
+        statusClass = 'send-result-status-sent';
+      } else if (r.status === 'likely_sent') {
+        statusLabel = '✓ envoyé (vérifié)';
+        statusClass = 'send-result-status-sent';
+      } else {
+        const kind = r.failureKind;
+        statusLabel =
+          kind === 'x_refused' ? '✗ X a refusé' :
+          kind === 'lookup_not_found' ? '❓ user introuvable' :
+          kind === 'lookup_other' ? '⚠️ lookup échec' :
+          '✗ échoué';
+        statusClass = 'send-result-status-failed';
+      }
+      const detailText = r.status === 'failed'
+        ? (r.error ?? 'unknown error')
+        : (r.variantUsed ?? '');
+      const trimmed = detailText.length > 180 ? detailText.slice(0, 180) + '…' : detailText;
+      const chatLink = r.chatUrl
+        ? ` · <a href="${r.chatUrl}" target="_blank" rel="noopener noreferrer" class="muted small">vérifier sur X ↗</a>`
+        : '';
       return `
-        <div class="send-result">
-          <span class="send-result-handle">@${escapeHtml(r.handle)}</span>
-          <span class="${statusClass}">${statusEmoji} ${r.status}</span>
-          ${detail}
+        <div class="send-result-rich" style="border-bottom:1px solid var(--border);padding:10px 12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0">
+              <a class="send-result-handle" href="https://x.com/${escapeAttr(r.handle)}" target="_blank" rel="noopener noreferrer" style="font-weight:700">@${escapeHtml(r.handle)}</a>
+              ${c?.name ? `<span class="muted" style="font-size:13px">— ${escapeHtml(c.name)}</span>` : ''}
+              ${verifiedBadge}
+              ${followers}
+            </div>
+            <span class="${statusClass}" style="font-weight:600">${statusLabel}</span>
+          </div>
+          ${bio}
+          <div class="muted small" style="margin-top:6px;font-style:italic">${escapeHtml(trimmed)}${chatLink}</div>
         </div>
       `;
     })
     .join('');
   els.xSendResultsList.innerHTML = `
     <p class="muted small">
-      ${out.sentCount} envoyés · ${out.failedCount} échoués
-      · 💰 <strong>$${out.cost.costUsdEstimate.toFixed(4)}</strong>
+      <strong>${out.sentCount}</strong> envoyés · <strong>${out.failedCount}</strong> échoués
+      · 💰 Total <strong>$${out.cost.costUsdEstimate.toFixed(4)}</strong>
       <span class="muted">(${out.cost.userLookupCalls} lookup × $0.010 + ${out.cost.dmSendCalls} send × $0.015)</span>
     </p>
     ${rows}
   `;
   els.xSendResults.classList.remove('hidden');
+}
+
+// ---------- Auto pipeline ----------
+
+/**
+ * One-button orchestrator: random business → find prospects → generate DM →
+ * send DMs (live). Each step renders its output into its own card as soon as
+ * data arrives; the auto-progress banner shows which step is running.
+ */
+async function xAutoPipeline() {
+  clearError();
+
+  // Hide downstream cards + reset state so the pipeline always starts clean.
+  els.xBusinessCard.classList.add('hidden');
+  els.xProspectsCard.classList.add('hidden');
+  els.xDMCard.classList.add('hidden');
+  els.xSendCard.classList.add('hidden');
+  els.xAutoCostSummary.textContent = '';
+  currentXBusiness = null;
+  currentXProspects = [];
+  currentXDM = null;
+
+  // Lock all manual buttons while auto is running.
+  els.xAutoBtn.disabled = true;
+  els.xRandomBtn.disabled = true;
+  els.xFindBtn.disabled = true;
+  els.xGenDMBtn.disabled = true;
+  els.xSendBtn.disabled = true;
+  const autoOriginal = els.xAutoBtn.textContent;
+  els.xAutoBtn.textContent = '⏳ Pipeline en cours…';
+  els.xAutoProgress.classList.remove('hidden');
+
+  const setStep = (label: string, detail = '') => {
+    els.xAutoStepLabel.textContent = label;
+    els.xAutoStepDetail.textContent = detail;
+  };
+  // Track cost across all steps.
+  let apifyCost = 0;
+  let xApiCost = 0;
+  const refreshCost = () => {
+    const total = apifyCost + xApiCost;
+    els.xAutoCostSummary.innerHTML =
+      `💰 Coût cumulé : <strong>$${total.toFixed(4)}</strong> ` +
+      `<span class="muted">(Apify $${apifyCost.toFixed(4)} + X API $${xApiCost.toFixed(4)})</span>`;
+  };
+
+  try {
+    // ----- Step 1 : random business -----
+    setStep('🎲 Étape 1/4 — Génération du business…', "Claude Opus 4.7 invente un business X-outreachable avec ICP + bio keywords.");
+    const language = els.xLang.value as Language;
+    const languageName = LANG_NAMES[language];
+    const businessType = els.xBiz.value || undefined;
+    currentXBusiness = await runSkill<
+      { businessType?: string; languageName: string },
+      XOutreachBusiness
+    >('create_x_outreach_business', { businessType, languageName });
+    renderXBusiness(currentXBusiness);
+    els.xBusinessCard.classList.remove('hidden');
+
+    // ----- Step 2 : generate DM template (needed before send to verify opens) -----
+    const target = Number(els.xProspectTarget.value) || 10;
+    setStep(
+      `✍️ Étape 2/4 — Génération du DM Spintax…`,
+      `Claude Opus 4.7 écrit un template + ${els.xVariantCount.value} variantes uniques.`,
+    );
+    const variantCount = Number(els.xVariantCount.value) || 6;
+    currentXDM = await runSkill<
+      { business: XOutreachBusiness; languageName: string; variantCount: number },
+      GeneratedXDM
+    >('generate_x_dm', { business: currentXBusiness, languageName, variantCount });
+    renderXDM(currentXDM);
+
+    // ----- Step 3+4 : find candidates → verify by sending → top-up loop -----
+    // The only reliable signal for "DMs open" is to actually attempt the send.
+    // So we over-fetch (target × 3), send with stop-at-target-successes, and
+    // if not enough successes after that batch, fetch more candidates excluding
+    // already-tried handles and continue.
+    const verifiedOpens: XProspect[] = []; // profiles whose DM actually went through
+    const allSendResults: SendXDMsOutput['results'] = []; // every attempt for audit
+    const triedHandles = new Set<string>(); // case-insensitive, prevents re-fetching
+    const keywordBatches: string[][] = [[...currentXBusiness.icp.xBioKeywords]];
+    const locationPreset = (els.xLocation.value as 'usa' | 'worldwide') ?? 'usa';
+    const MAX_TOP_UP_ROUNDS = 5;
+    const candidatesByHandle = new Map<string, XProspect>(); // for re-rendering
+
+    els.xSendCard.classList.remove('hidden');
+
+    for (let round = 0; round < MAX_TOP_UP_ROUNDS; round++) {
+      if (verifiedOpens.length >= target) break;
+      const needed = target - verifiedOpens.length;
+      // Overshoot ×4 because typical close-DM rate is 60-70%. We trade Apify
+      // cost (~$0.016/round) for far fewer top-up rounds.
+      const overshoot = Math.min(30, Math.max(needed * 4, 15));
+
+      // (a) Find candidates
+      const keywordsThisRound = keywordBatches[round] ?? [];
+      if (keywordsThisRound.length === 0) break;
+      const roundLabel = round === 0 ? 'initial' : `top-up ${round}`;
+      setStep(
+        `🔍 Étape 3/4 — Recherche candidats (${roundLabel}) — ${verifiedOpens.length}/${target} DM-és…`,
+        `Cherche ${overshoot} candidats avec keywords: ${keywordsThisRound.join(', ')}`,
+      );
+      const findOut = await runSkill<
+        {
+          bioKeywords: string[];
+          topics?: string[];
+          target: number;
+          locationPreset: 'usa' | 'worldwide';
+          openDmFilter: 'strict' | 'off';
+          excludeHandles: string[];
+        },
+        FindXProspectsOutput
+      >('find_x_prospects', {
+        bioKeywords: keywordsThisRound,
+        topics: round === 0 ? currentXBusiness.icp.xTopics : undefined,
+        target: overshoot,
+        locationPreset,
+        // CRITICAL: turn OFF the heuristic open-DM filter. The strict filter
+        // was dropping 95% of candidates (3 found in 10 min). The actual
+        // verification happens at send time — we attempt, 403s are skipped,
+        // we keep going until target successes.
+        openDmFilter: 'off',
+        excludeHandles: Array.from(triedHandles),
+      });
+      apifyCost += findOut.stats.costUsdActual ?? 0;
+      refreshCost();
+
+      const newCandidates = findOut.prospects.filter(
+        (p) => !triedHandles.has(p.handle.toLowerCase()),
+      );
+
+      // If find returned nothing new, expand keywords and try again
+      if (newCandidates.length === 0) {
+        if (round + 1 >= MAX_TOP_UP_ROUNDS) break;
+        setStep(
+          `🧠 Étape 3/4 — Expansion keywords (round ${round + 1})…`,
+          `${verifiedOpens.length}/${target} DM-és. Aucun nouveau candidat trouvé, Claude génère de nouveaux angles.`,
+        );
+        const expansion = await runSkill<
+          {
+            business: typeof currentXBusiness;
+            triedKeywords: string[];
+            countNeeded: number;
+            locationPreset: 'usa' | 'worldwide';
+          },
+          { keywords: string[]; rationale: string }
+        >('expand_x_keywords', {
+          business: currentXBusiness,
+          triedKeywords: keywordBatches.flat(),
+          countNeeded: 8,
+          locationPreset,
+        });
+        if (expansion.keywords.length === 0) break;
+        keywordBatches.push(expansion.keywords);
+        continue;
+      }
+
+      // Track candidates for display + mark as tried.
+      for (const p of newCandidates) {
+        candidatesByHandle.set(p.handle.toLowerCase(), p);
+        triedHandles.add(p.handle.toLowerCase());
+      }
+
+      // (b) Verify-by-send: try each candidate, stop when we have `needed` more successes.
+      const handlesToTry = newCandidates.map((p) => p.handle);
+      // Populate the manual textarea with the candidates being attempted so
+      // the user can see who's being contacted at a glance.
+      els.xHandles.value = handlesToTry.map((h) => `@${h}`).join('\n');
+      setStep(
+        `📨 Étape 4/4 — Vérification + envoi (${roundLabel}) — ${verifiedOpens.length}/${target}…`,
+        `Tente ${handlesToTry.length} candidats. S'arrête à ${needed} envois réussis. Délai 5-12s humain.`,
+      );
+      els.xSendStatus.classList.remove('hidden');
+      els.xSendStatusText.textContent = `Round ${round + 1}: ${handlesToTry.length} candidats, cible ${needed} succès…`;
+
+      const sendOut = await sendDMsLive({
+        template: currentXDM.template,
+        handles: handlesToTry,
+        variants: currentXDM.variants,
+        targetSuccesses: needed,
+        candidates: newCandidates.map((p) => ({
+          handle: p.handle,
+          name: p.name,
+          bio: p.bio,
+          followersCount: p.followersCount,
+          verified: p.verified,
+          score: p.score,
+        })),
+      });
+      xApiCost += sendOut.cost.costUsdEstimate ?? 0;
+      refreshCost();
+      els.xSendStatus.classList.add('hidden');
+
+      // Merge results — count both 'sent' and 'likely_sent' (X returned an
+      // error code but the post-send verify confirmed the DM landed).
+      for (const r of sendOut.results) {
+        allSendResults.push(r);
+        if (r.status === 'sent' || r.status === 'likely_sent') {
+          const c = candidatesByHandle.get(r.handle.toLowerCase());
+          if (c && !verifiedOpens.find((p) => p.handle.toLowerCase() === c.handle.toLowerCase())) {
+            verifiedOpens.push(c);
+          }
+        }
+      }
+
+      // Re-render the prospects panel with ONLY verified opens — this is what
+      // the user sees as "the prospects". The auto pipeline guarantees only
+      // these have DMs open (we just proved it by sending).
+      renderXProspects({
+        prospects: verifiedOpens,
+        query: findOut.query,
+        stats: {
+          ...findOut.stats,
+          target,
+          done: verifiedOpens.length >= target,
+        },
+      });
+      els.xProspectsCard.classList.remove('hidden');
+
+      // If we still need more, expand keywords for the next round
+      if (verifiedOpens.length < target && round + 1 < MAX_TOP_UP_ROUNDS) {
+        if (!keywordBatches[round + 1]) {
+          setStep(
+            `🧠 Top-up — Expansion keywords pour round ${round + 2}…`,
+            `${verifiedOpens.length}/${target} DM-és. Génère de nouveaux angles.`,
+          );
+          const expansion = await runSkill<
+            {
+              business: typeof currentXBusiness;
+              triedKeywords: string[];
+              countNeeded: number;
+              locationPreset: 'usa' | 'worldwide';
+            },
+            { keywords: string[]; rationale: string }
+          >('expand_x_keywords', {
+            business: currentXBusiness,
+            triedKeywords: keywordBatches.flat(),
+            countNeeded: 8,
+            locationPreset,
+          });
+          if (expansion.keywords.length === 0) break;
+          keywordBatches.push(expansion.keywords);
+        }
+      }
+    }
+
+    currentXProspects = verifiedOpens;
+
+    // Render the full audit log of all sends (including the 🔒 fermés) in the
+    // send results card. This is the transparency layer — user sees how many
+    // candidates we actually had to attempt to get target verified opens.
+    const aggregateSendOut: SendXDMsOutput = {
+      results: allSendResults,
+      sentCount: allSendResults.filter((r) => r.status === 'sent' || r.status === 'likely_sent').length,
+      failedCount: allSendResults.filter((r) => r.status === 'failed').length,
+      skippedCount: 0,
+      stoppedEarly: false,
+      cost: {
+        userLookupCalls: allSendResults.length,
+        dmSendCalls: allSendResults.length,
+        dmSendSuccesses: allSendResults.filter((r) => r.status === 'sent' || r.status === 'likely_sent').length,
+        costUsdEstimate: xApiCost,
+      },
+    };
+    renderSendResults(aggregateSendOut, candidatesByHandle);
+
+    const finalLabel = verifiedOpens.length >= target
+      ? `✓ Pipeline terminé — ${verifiedOpens.length}/${target} DMs vérifiés envoyés`
+      : `⚠️ Pipeline terminé — ${verifiedOpens.length}/${target} DMs vérifiés (pool de candidats épuisé)`;
+    setStep(
+      finalLabel,
+      `Total candidats tentés : ${allSendResults.length}. Taux de succès : ${
+        allSendResults.length > 0
+          ? Math.round((100 * verifiedOpens.length) / allSendResults.length)
+          : 0
+      }%. Affichage uniquement des profils dont le DM est bien passé.`,
+    );
+  } catch (e) {
+    showError(`Pipeline auto interrompu : ${(e as Error).message}`);
+    setStep('✗ Pipeline interrompu', (e as Error).message);
+  } finally {
+    els.xAutoBtn.disabled = false;
+    els.xRandomBtn.disabled = false;
+    els.xFindBtn.disabled = !currentXBusiness;
+    els.xGenDMBtn.disabled = currentXProspects.length === 0;
+    els.xSendBtn.disabled = !currentXDM;
+    els.xAutoBtn.textContent = autoOriginal;
+  }
 }
 
 // ---------- Wiring ----------
@@ -1620,10 +2276,362 @@ els.mgRandomBtn.addEventListener('click', mapsGroundingRandomBusiness);
 els.mgFetchBtn.addEventListener('click', mapsGroundingFetchProspects);
 els.xLinkBtn.addEventListener('click', xLogin);
 els.xUnlinkBtn.addEventListener('click', xLogout);
+els.xAutoBtn.addEventListener('click', xAutoPipeline);
 els.xRandomBtn.addEventListener('click', xRandomBusiness);
 els.xFindBtn.addEventListener('click', xFindProspects);
 els.xGenDMBtn.addEventListener('click', xGenerateDM);
 els.xSendBtn.addEventListener('click', xSendDMs);
+
+// ---------- TikTok ----------
+
+interface TikTokStatusResp {
+  linked: boolean;
+  displayName?: string;
+  openId?: string;
+  scopes?: string[];
+}
+
+interface PostTikTokVideoOutput {
+  publishId: string;
+  status: 'inbox_delivered' | 'published' | 'failed' | 'pending';
+  failReason?: string;
+  publicPostId?: string;
+  videoSizeBytes: number;
+  fellBackToInbox?: boolean;
+  fallbackReason?: string;
+}
+
+async function refreshTikTokAuthStatus() {
+  try {
+    const status = await apiGet<TikTokStatusResp>('/api/auth/tiktok/status');
+    if (status.linked) {
+      els.ttAuthStatus.innerHTML = `<span class="x-linked-badge" style="background:rgba(43,212,160,0.15)">linked</span> Connecté en tant que <strong>${escapeHtml(status.displayName ?? status.openId ?? '?')}</strong>`;
+      els.ttLinkBtn.classList.add('hidden');
+      els.ttUnlinkBtn.classList.remove('hidden');
+      els.ttPostBtn.disabled = false;
+    } else {
+      els.ttAuthStatus.innerHTML = `<span class="muted">Aucun compte TikTok linké.</span>`;
+      els.ttLinkBtn.classList.remove('hidden');
+      els.ttUnlinkBtn.classList.add('hidden');
+      els.ttPostBtn.disabled = true;
+    }
+  } catch (e) {
+    els.ttAuthStatus.innerHTML = `<span class="muted">Statut TikTok : erreur (${escapeHtml((e as Error).message)})</span>`;
+  }
+}
+
+function tiktokLogin() {
+  const w = window.open('/api/auth/tiktok/login', 'tiktok-oauth', 'width=720,height=720');
+  if (!w) {
+    window.location.href = '/api/auth/tiktok/login';
+    return;
+  }
+  window.addEventListener('message', function once(ev) {
+    if (ev.data?.type === 'tiktok_linked') {
+      window.removeEventListener('message', once);
+      refreshTikTokAuthStatus();
+    }
+  });
+  let polls = 0;
+  const poller = window.setInterval(async () => {
+    polls++;
+    if (polls > 20) { clearInterval(poller); return; }
+    const s = await apiGet<TikTokStatusResp>('/api/auth/tiktok/status').catch(() => null);
+    if (s?.linked) {
+      clearInterval(poller);
+      refreshTikTokAuthStatus();
+    }
+  }, 1500);
+}
+
+async function tiktokLogout() {
+  try {
+    await apiPost('/api/auth/tiktok/logout', {});
+    refreshTikTokAuthStatus();
+  } catch (e) {
+    showError((e as Error).message);
+  }
+}
+
+async function tiktokPost() {
+  clearError();
+  const mode = (els.ttMode.value as 'inbox' | 'direct') ?? 'direct';
+  const privacy = (els.ttPrivacy.value as 'PUBLIC_TO_EVERYONE' | 'MUTUAL_FOLLOW_FRIENDS' | 'SELF_ONLY') ?? 'SELF_ONLY';
+  const caption = els.ttCaption.value.trim() || undefined;
+
+  if (tiktokSource === 'file') {
+    const file = els.ttFileInput.files?.[0];
+    if (!file) {
+      showError("Sélectionne un fichier vidéo à uploader.");
+      return;
+    }
+    if (file.size > 64 * 1024 * 1024) {
+      showError(`Fichier trop gros (${(file.size / 1_000_000).toFixed(1)} MB). Cap TikTok = 64 MB.`);
+      return;
+    }
+    await tiktokPostFromFile(file, { mode, privacy, caption });
+  } else {
+    const videoUri = els.ttVideoUri.value.trim();
+    if (!videoUri) {
+      showError("Aucun videoUri à poster. Génère une vidéo Veo, ou bascule sur 'Upload fichier'.");
+      return;
+    }
+    await tiktokPostFromVeoUri(videoUri, { mode, privacy, caption });
+  }
+}
+
+interface TikTokPostParams {
+  mode: 'inbox' | 'direct';
+  privacy: 'PUBLIC_TO_EVERYONE' | 'MUTUAL_FOLLOW_FRIENDS' | 'SELF_ONLY';
+  caption?: string;
+}
+
+async function tiktokPostFromVeoUri(videoUri: string, p: TikTokPostParams) {
+  els.ttPostBtn.disabled = true;
+  const original = els.ttPostBtn.textContent;
+  els.ttPostBtn.textContent = '⏳ Upload…';
+  els.ttStatus.classList.remove('hidden');
+  els.ttResult.classList.add('hidden');
+  els.ttStatusText.textContent = 'Upload de la vidéo Veo vers TikTok (download + PUT + poll)…';
+  try {
+    const out = await runSkill<
+      {
+        videoUri: string;
+        caption?: string;
+        mode: 'inbox' | 'direct';
+        privacyLevel: 'PUBLIC_TO_EVERYONE' | 'MUTUAL_FOLLOW_FRIENDS' | 'SELF_ONLY';
+      },
+      PostTikTokVideoOutput
+    >('post_tiktok_video', {
+      videoUri,
+      caption: p.caption,
+      mode: p.mode,
+      privacyLevel: p.privacy,
+    });
+    renderTikTokResult(out);
+  } catch (e) {
+    showError(`TikTok post failed: ${(e as Error).message}`);
+  } finally {
+    els.ttStatus.classList.add('hidden');
+    els.ttPostBtn.disabled = false;
+    els.ttPostBtn.textContent = original;
+  }
+}
+
+async function tiktokPostFromFile(file: File, p: TikTokPostParams) {
+  els.ttPostBtn.disabled = true;
+  const original = els.ttPostBtn.textContent;
+  els.ttPostBtn.textContent = '⏳ Upload fichier…';
+  els.ttStatus.classList.remove('hidden');
+  els.ttResult.classList.add('hidden');
+  els.ttStatusText.textContent = `Upload du fichier (${(file.size / 1_000_000).toFixed(1)} MB) vers TikTok…`;
+
+  try {
+    // Caption goes in a header — base64-encoded to safely carry newlines/emoji.
+    const captionB64 = p.caption
+      ? btoa(unescape(encodeURIComponent(p.caption)))
+      : '';
+    const buf = await file.arrayBuffer();
+    const res = await fetch('/api/tiktok/upload-and-post', {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'video/mp4',
+        'X-TikTok-Mode': p.mode,
+        'X-TikTok-Privacy': p.privacy,
+        ...(captionB64 ? { 'X-TikTok-Caption': captionB64 } : {}),
+      },
+      body: buf,
+    });
+    const body = (await res.json()) as PostTikTokVideoOutput & { error?: string };
+    if (!res.ok) {
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    renderTikTokResult(body);
+  } catch (e) {
+    showError(`TikTok upload failed: ${(e as Error).message}`);
+  } finally {
+    els.ttStatus.classList.add('hidden');
+    els.ttPostBtn.disabled = false;
+    els.ttPostBtn.textContent = original;
+  }
+}
+
+function renderTikTokResult(out: PostTikTokVideoOutput) {
+  const statusBadge =
+    out.status === 'published'
+      ? '<span class="x-linked-badge" style="background:rgba(43,212,160,0.15)">✓ publié</span>'
+      : out.status === 'inbox_delivered'
+        ? '<span class="x-linked-badge" style="background:rgba(124,92,255,0.15)">📥 dans drafts TikTok</span>'
+        : out.status === 'pending'
+          ? '<span class="x-linked-badge" style="background:rgba(255,200,0,0.15)">⏳ traitement TikTok en cours</span>'
+          : '<span class="x-linked-badge" style="background:rgba(255,80,80,0.15)">✗ échec</span>';
+  const sizeStr = `${(out.videoSizeBytes / 1_000_000).toFixed(2)} MB`;
+  const postUrl = out.publicPostId
+    ? `<p>Lien post : <a href="https://www.tiktok.com/video/${escapeAttr(out.publicPostId)}" target="_blank" rel="noopener noreferrer">tiktok.com/video/${escapeHtml(out.publicPostId)}</a></p>`
+    : '';
+  const failBlock = out.failReason
+    ? `<p class="muted small">Raison : <code>${escapeHtml(out.failReason)}</code></p>`
+    : '';
+  const inboxHint = out.status === 'inbox_delivered'
+    ? '<p class="muted small">💡 Ouvre l\'app TikTok sur ton téléphone, va dans les drafts, ajoute caption/sound/hashtags et publie.</p>'
+    : '';
+  els.ttResultBody.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      ${statusBadge}
+      <span class="muted small">publishId : <code>${escapeHtml(out.publishId)}</code></span>
+      <span class="muted small">taille : ${sizeStr}</span>
+    </div>
+    ${postUrl}
+    ${failBlock}
+    ${inboxHint}
+  `;
+  els.ttResult.classList.remove('hidden');
+}
+
+els.ttLinkBtn.addEventListener('click', tiktokLogin);
+els.ttUnlinkBtn.addEventListener('click', tiktokLogout);
+els.ttPostBtn.addEventListener('click', tiktokPost);
+refreshTikTokAuthStatus();
+
+// Source toggle (Veo URI ↔ file upload)
+function setTikTokSource(src: TikTokSource) {
+  tiktokSource = src;
+  const veoActive = src === 'veo';
+  els.ttSourceVeoPanel.classList.toggle('hidden', !veoActive);
+  els.ttSourceFilePanel.classList.toggle('hidden', veoActive);
+  els.ttSourceVeoBtn.classList.toggle('tt-source-active', veoActive);
+  els.ttSourceFileBtn.classList.toggle('tt-source-active', !veoActive);
+}
+els.ttSourceVeoBtn.addEventListener('click', () => setTikTokSource('veo'));
+els.ttSourceFileBtn.addEventListener('click', () => setTikTokSource('file'));
+
+// Show selected file info (name + size) so the user can confirm before posting.
+els.ttFileInput.addEventListener('change', () => {
+  const file = els.ttFileInput.files?.[0];
+  if (!file) {
+    els.ttFileInfo.classList.add('hidden');
+    return;
+  }
+  const sizeMb = (file.size / 1_000_000).toFixed(2);
+  const tooBig = file.size > 64 * 1024 * 1024;
+  els.ttFileInfo.innerHTML = tooBig
+    ? `<span style="color:var(--danger)">⚠️ ${escapeHtml(file.name)} — ${sizeMb} MB (dépasse le cap TikTok 64 MB)</span>`
+    : `✓ ${escapeHtml(file.name)} · ${sizeMb} MB · ${escapeHtml(file.type || 'video/mp4')}`;
+  els.ttFileInfo.classList.remove('hidden');
+});
+
+
+/**
+ * Auto-generates a TikTok caption + hashtags from the UGC business + script
+ * right after a video finishes rendering. Fires-and-forgets; the result is
+ * cached in `lastTikTokCaption` and pushed into the TikTok panel form.
+ */
+async function autoGenerateTikTokCaption() {
+  if (!lastUgcBusiness) return;
+  // Compose the spoken script + concept as input for the caption generator.
+  const videoScript = lastUgcVideoScript
+    ? [lastUgcVideoScript.hook, lastUgcVideoScript.spokenLine, lastUgcVideoScript.concept]
+        .filter(Boolean).join('\n')
+    : undefined;
+  // Show a small hint that we're generating in the UGC inline area too.
+  els.ugcTikTokInline.classList.remove('hidden');
+  els.ugcTikTokInline.textContent = '🤖 Génération auto de la caption + hashtags TikTok…';
+  try {
+    const out = await runSkill<
+      { business: Business; videoScript?: string; languageName: string; maxHashtags: number },
+      { caption: string; captionBody: string; hashtags: string[]; rationale: string }
+    >('generate_tiktok_caption', {
+      business: lastUgcBusiness,
+      videoScript,
+      languageName: 'English',
+      maxHashtags: 5,
+    });
+    lastTikTokCaption = {
+      caption: out.caption,
+      captionBody: out.captionBody,
+      hashtags: out.hashtags,
+    };
+    // Push into the TikTok panel
+    els.ttCaption.value = out.caption;
+    els.ttMode.value = 'direct';
+    els.ttPrivacy.value = 'SELF_ONLY';
+    els.ugcTikTokInline.innerHTML = `✓ Caption auto-générée (${out.hashtags.length} hashtags). Clique <strong>🎵 Post to TikTok</strong> pour poster direct.`;
+  } catch (e) {
+    els.ugcTikTokInline.innerHTML = `<span class="muted">Caption auto-gen failed: ${escapeHtml((e as Error).message)} — tu peux quand même poster, juste sans caption pré-remplie.</span>`;
+  }
+}
+
+/**
+ * Inline "Post to TikTok" on the Video UGC card. Pulls the most-recently
+ * generated Veo URI, posts straight to the TikTok inbox of the linked user.
+ * Sandbox-friendly defaults: mode='inbox', no caption (user finalizes in app).
+ */
+els.ugcPostTikTokBtn.addEventListener('click', async () => {
+  if (!lastGeneratedVeoUri) {
+    showError("Aucune vidéo UGC à poster. Génère-en une d'abord avec le bouton Generate.");
+    return;
+  }
+  // Check linked first — if not, point user to the TikTok panel.
+  try {
+    const status = await apiGet<TikTokStatusResp>('/api/auth/tiktok/status');
+    if (!status.linked) {
+      els.ugcTikTokInline.classList.remove('hidden');
+      els.ugcTikTokInline.innerHTML =
+        '⚠️ Aucun compte TikTok lié. Va dans le panneau <strong>TikTok</strong> (sidebar) → <em>Link TikTok account</em>, puis reviens cliquer ici.';
+      return;
+    }
+  } catch (e) {
+    showError(`TikTok status check failed: ${(e as Error).message}`);
+    return;
+  }
+
+  clearError();
+  els.ugcPostTikTokBtn.disabled = true;
+  const original = els.ugcPostTikTokBtn.textContent;
+  els.ugcPostTikTokBtn.textContent = '⏳ Upload + post direct…';
+  els.ugcTikTokInline.classList.remove('hidden');
+  els.ugcTikTokInline.innerHTML = '⏳ Download Veo + upload TikTok + direct post… (30s à 2min)';
+
+  try {
+    // Direct post with auto-generated caption (sandbox forces SELF_ONLY).
+    const caption = lastTikTokCaption?.caption ?? els.ttCaption.value.trim() ?? undefined;
+    const out = await runSkill<
+      { videoUri: string; caption?: string; mode: 'direct'; privacyLevel: 'SELF_ONLY' },
+      PostTikTokVideoOutput
+    >('post_tiktok_video', {
+      videoUri: lastGeneratedVeoUri,
+      caption,
+      mode: 'direct',
+      privacyLevel: 'SELF_ONLY',
+    });
+    const statusBadge =
+      out.status === 'published' ? '✓ publié direct'
+      : out.status === 'inbox_delivered'
+        ? (out.fellBackToInbox
+            ? '📥 fallback auto inbox (sandbox + compte non privé)'
+            : '📥 dans tes drafts TikTok')
+      : out.status === 'pending' ? '⏳ traitement TikTok en cours'
+      : '✗ échec';
+    const fallbackHint = out.fellBackToInbox
+      ? `<p class="muted small" style="margin-top:6px">⚠️ TikTok sandbox refuse direct post tant que l'app n'est pas auditée OU que ton compte n'est pas privé. On a re-tenté en inbox automatiquement — la vidéo est dans tes drafts. Ouvre l'app TikTok → Drafts → ajoute caption/sound → publie.<br><span class="muted">Pour avoir direct post tout de suite : passe ton compte en privé (Settings → Privacy → Private account). Pour public + auto : attends l'audit.</span></p>`
+      : (out.status === 'inbox_delivered'
+          ? `<p class="muted small" style="margin-top:6px">💡 Ouvre l'app TikTok → Drafts → finalise + publie.</p>`
+          : '');
+    const linkBlock = out.publicPostId
+      ? ` · <a href="https://www.tiktok.com/video/${escapeAttr(out.publicPostId)}" target="_blank" rel="noopener noreferrer">voir sur TikTok ↗</a>`
+      : '';
+    const captionPreview = caption
+      ? `<details style="margin-top:6px"><summary class="muted small">📝 caption postée</summary><pre style="white-space:pre-wrap;font-size:12px;margin:6px 0">${escapeHtml(caption)}</pre></details>`
+      : '';
+    const failBlock = out.failReason ? ` <code>${escapeHtml(out.failReason)}</code>` : '';
+    els.ugcTikTokInline.innerHTML = `<strong>${statusBadge}</strong> · publishId <code>${escapeHtml(out.publishId)}</code>${linkBlock}${failBlock}${captionPreview}${fallbackHint}`;
+  } catch (e) {
+    els.ugcTikTokInline.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml((e as Error).message)}</span>`;
+  } finally {
+    els.ugcPostTikTokBtn.disabled = false;
+    els.ugcPostTikTokBtn.textContent = original;
+  }
+});
 
 // Editable tag lists — keywords + topics
 function wireTagAdder(input: HTMLInputElement, button: HTMLButtonElement, listEl: HTMLElement, getItems: () => string[] | null) {

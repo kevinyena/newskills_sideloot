@@ -30,15 +30,16 @@ export const XOutreachBusinessSchema = z.object({
       ),
     xBioKeywords: z
       .array(z.string())
-      .min(3)
+      .min(5)
+      .max(10)
       .describe(
-        "5-8 keywords qu'on retrouve dans la bio X des prospects (ex: 'building in public', 'indie hacker', 'shipping daily', 'AI tinkerer').",
+        "6-10 keywords QU'ON RETROUVE LITTÉRALEMENT dans la bio X. Règles strictes: 1-2 mots max chacun, identités/rôles/niches (pas de phrases), tout en minuscules, anglais ou langue de la bio cible. Exemples qui matchent: trader, founder, indie, dev, marketer, designer, dtc, crypto, saas, ai, builder, creator. Exemples qui ne matchent PAS: 'building in public', 'shipping daily', 'AI tinkerer' (trop verbeux).",
       ),
     xTopics: z
       .array(z.string())
       .min(2)
       .describe(
-        "Sujets dont ils parlent sur X (ex: 'micro-SaaS', 'no-code', 'Bootstrapped', 'AI agents').",
+        "Sujets dont ils parlent sur X — peuvent être plus verbeux (ex: 'micro-SaaS', 'no-code', 'bootstrapped', 'AI agents'). Servent à élargir la recherche.",
       ),
     pain: z.string().describe('Le pain concret que le business résout.'),
     estimatedTicket: z.string().describe("Ticket / ARR estimé (ex: '49€/mois', '199$ one-shot')."),
@@ -65,7 +66,12 @@ indie hackers (MRR<10k), AI builders, no-code makers, Notion/Airtable solopreneu
 - Le business doit servir CET ICP — pas un fortune 500
 - Évite SaaS B2B mid-market génériques
 - Ticket adapté : un indie ne paie pas 999$/mois
-- Bio keywords doivent être des termes RÉELS qu'on tape dans X search
+
+# RÈGLES POUR xBioKeywords (CRITIQUE)
+- 1-2 mots max par keyword. Pas de phrases.
+- Identités/rôles/niches en minuscules. "founder", "trader", "indie", "dtc", "saas" — pas "building in public", "AI tinkerer".
+- 6-10 keywords mixant 2-3 LARGES (founder/indie/creator/dev/marketer) + 3-5 NICHE (dtc/saas/crypto/no-code).
+- Test mental : x.com/search?q=KEYWORD&f=user retourne-t-il des centaines de profils ? Si non, rejette.
 
 # INPUTS
 - Type imposé (peut être vide): {{businessType}}
@@ -115,7 +121,11 @@ export class CreateXOutreachBusinessSkill
     return callClaude({
       userMessage,
       schema: XOutreachBusinessSchema,
-      effort: 'high',
+      // Generating a business idea + ICP keywords does not need deep reasoning.
+      // 'high' was making this take 60+s due to adaptive thinking burning cycles
+      // re-checking constraints. 'low' is enough — the schema + prompt already
+      // enforce all the rules.
+      effort: 'low',
     });
   }
 }

@@ -27,6 +27,31 @@ const X_TOKEN_URL = 'https://api.twitter.com/2/oauth2/token';
 const X_API_BASE = 'https://api.twitter.com/2';
 const SCOPES = ['tweet.read', 'users.read', 'dm.write', 'offline.access'];
 
+/**
+ * Wrap fetch with a hard timeout. Without this, a stuck X API call hangs the
+ * entire pipeline indefinitely (observed: 5+ minutes on a single DM send).
+ * 20s is generous for X API which is normally <2s; anything slower is broken
+ * and we'd rather report failure than freeze the user.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const { timeoutMs = 20_000, ...rest } = init;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...rest, signal: ctrl.signal });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') {
+      throw new Error(`X API timeout after ${timeoutMs / 1000}s: ${url}`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 function clientId(): string {
   const v = process.env.X_OAUTH_CLIENT_ID;
   if (!v) throw new Error('X_OAUTH_CLIENT_ID manquante dans .env');
@@ -303,9 +328,13 @@ export async function lookupUserByUsername(handle: string): Promise<XUserLookup>
   const clean = handle.replace(/^@/, '').trim();
   if (!clean) throw new Error('handle vide');
   const token = await getValidAccessToken();
-  const res = await fetch(`${X_API_BASE}/users/by/username/${encodeURIComponent(clean)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithTimeout(
+    `${X_API_BASE}/users/by/username/${encodeURIComponent(clean)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 15_000,
+    },
+  );
   const j = (await res.json()) as XUserByUsernameResponse;
   if (!res.ok || !j.data?.id) {
     throw new Error(
@@ -379,9 +408,17 @@ export async function lookupUsersByUsernames(handles: string[]): Promise<XUserDe
 
 interface XDmResponse {
   data?: { dm_conversation_id: string; dm_event_id: string };
-  errors?: Array<{ message: string; detail?: string }>;
+  errors?: Array<{
+    message?: string;
+    detail?: string;
+    code?: number;
+    title?: string;
+    type?: string;
+  }>;
   title?: string;
   detail?: string;
+  type?: string;
+  status?: number;
 }
 
 // ---------- Recent tweet search ----------
@@ -497,20 +534,74 @@ export async function sendDm(participantId: string, text: string): Promise<{
 }> {
   const token = await getValidAccessToken();
   const url = `${X_API_BASE}/dm_conversations/with/${encodeURIComponent(participantId)}/messages`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ text }),
+    timeoutMs: 25_000,
   });
-  const j = (await res.json()) as XDmResponse;
+  // Read body as text first so we can log it on any error even if it's not JSON.
+  const rawBody = await res.text();
+  let j: XDmResponse = {};
+  try {
+    j = rawBody ? (JSON.parse(rawBody) as XDmResponse) : {};
+  } catch {
+    // X sometimes returns non-JSON HTML for auth errors. Fall through.
+  }
   if (!res.ok || !j.data?.dm_event_id) {
-    const msg =
-      j.errors?.[0]?.message ?? j.detail ?? j.title ?? `HTTP ${res.status}`;
-    // Common case: free tier or DM permissions
-    throw new Error(`X DM send failed (${res.status}): ${msg}`);
+    const err = j.errors?.[0];
+    const parts = [
+      `HTTP ${res.status}`,
+      err?.code ? `code ${err.code}` : null,
+      err?.title ?? j.title ?? null,
+      err?.message ?? err?.detail ?? j.detail ?? null,
+    ].filter(Boolean);
+    // Log raw body for debugging. X's docs are vague on exact error formats.
+    // eslint-disable-next-line no-console
+    console.error(`[x-api] sendDm to ${participantId} → ${res.status} body=${rawBody.slice(0, 500)}`);
+    throw new Error(`X DM send failed (${parts.join(' · ')})`);
   }
   return { dmEventId: j.data.dm_event_id, dmConversationId: j.data.dm_conversation_id };
+}
+
+/** Returns the OAuth-linked user's X user ID (from stored tokens), or null. */
+export async function getLinkedUserId(): Promise<string | null> {
+  const t = await loadTokens();
+  return t?.userId ?? null;
+}
+
+/**
+ * Lookup if a 1-1 DM conversation has any events with a participant. We use
+ * this to VERIFY a DM that returned 403 — X sometimes returns 403 even after
+ * the message landed (anti-abuse / duplicate detection). If the conversation
+ * has events, the DM is there.
+ *
+ * Returns:
+ *   - { exists: true, eventCount }  → conversation has messages
+ *   - { exists: false }              → no conversation or empty
+ *   - throws on auth error
+ */
+export async function dmConversationHasEvents(
+  participantId: string,
+): Promise<{ exists: boolean; eventCount?: number }> {
+  const token = await getValidAccessToken();
+  const url = `${X_API_BASE}/dm_conversations/with/${encodeURIComponent(participantId)}/dm_events?max_results=1`;
+  const res = await fetchWithTimeout(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeoutMs: 10_000,
+  });
+  if (!res.ok) {
+    // 404 = no conversation. Anything else = treat as unknown, return false to
+    // avoid false positives.
+    return { exists: false };
+  }
+  const j = (await res.json()) as {
+    data?: Array<{ id: string }>;
+    meta?: { result_count?: number };
+  };
+  const count = j.meta?.result_count ?? j.data?.length ?? 0;
+  return { exists: count > 0, eventCount: count };
 }

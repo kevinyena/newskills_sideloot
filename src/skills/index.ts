@@ -24,8 +24,11 @@ import { CreateLocalBusinessSkill } from './maps_grounding/CreateLocalBusinessSk
 import { FetchMapsProspectsSkill } from './maps_grounding/FetchMapsProspectsSkill.js';
 import { CreateXOutreachBusinessSkill } from './x_dm/CreateXOutreachBusinessSkill.js';
 import { FindXProspectsSkill } from './x_dm/FindXProspectsSkill.js';
+import { ExpandXKeywordsSkill } from './x_dm/ExpandXKeywordsSkill.js';
 import { GenerateXDMSkill } from './x_dm/GenerateXDMSkill.js';
 import { SendXDMsSkill } from './x_dm/SendXDMsSkill.js';
+import { PostTikTokVideoSkill } from './tiktok/PostTikTokVideoSkill.js';
+import { GenerateTikTokCaptionSkill } from './tiktok/GenerateTikTokCaptionSkill.js';
 
 export { type BaseSkill, type SkillContext, type SkillType } from './BaseSkill.js';
 export { renderTemplate } from './runtime/render.js';
@@ -43,8 +46,11 @@ export {
   FetchMapsProspectsSkill,
   CreateXOutreachBusinessSkill,
   FindXProspectsSkill,
+  ExpandXKeywordsSkill,
   GenerateXDMSkill,
   SendXDMsSkill,
+  PostTikTokVideoSkill,
+  GenerateTikTokCaptionSkill,
 };
 
 /** All registered skills. New skills: import + add here. */
@@ -61,8 +67,11 @@ export const ALL_SKILLS: ReadonlyArray<BaseSkill> = [
   new FetchMapsProspectsSkill(),
   new CreateXOutreachBusinessSkill(),
   new FindXProspectsSkill(),
+  new ExpandXKeywordsSkill(),
   new GenerateXDMSkill(),
   new SendXDMsSkill(),
+  new PostTikTokVideoSkill(),
+  new GenerateTikTokCaptionSkill(),
 ];
 
 /** Look up a skill by its technical `name`. */
@@ -130,6 +139,7 @@ const CATEGORY_DISPLAY: Record<string, { name: string; icon: string; order: numb
   prospection: { name: 'Choose Prospection', icon: '🎯', order: 3 },
   maps_grounding: { name: 'Maps Grounding', icon: '🗺️', order: 4 },
   x_dm: { name: 'X DM', icon: '𝕏', order: 5 },
+  tiktok: { name: 'TikTok', icon: '🎵', order: 6 },
 };
 
 function defaultDisplay(category: string, fallbackOrder: number) {

@@ -668,8 +668,9 @@ textarea:focus { border-color: var(--accent); outline: none; }
 }
 .send-result:last-child { border-bottom: none; }
 .send-result-handle { font-weight: 700; min-width: 130px; }
-.send-result-status-sent { color: var(--success); }
-.send-result-status-failed { color: var(--danger); }
+.send-result-status-sent { color: var(--success); font-weight: 600; }
+.send-result-status-failed { color: var(--danger); font-weight: 600; }
+.send-result-status-pending { color: var(--muted); font-weight: 600; font-style: italic; }
 .send-result-variant {
   color: var(--muted);
   font-style: italic;
@@ -831,3 +832,6 @@ textarea:focus { border-color: var(--accent); outline: none; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
   .main { padding: 20px; }
 }
+
+/* TikTok source tab buttons (Veo / File upload) */
+.tt-source-active { background: var(--accent) !important; color: white !important; border-color: var(--accent) !important; }

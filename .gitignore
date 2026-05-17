@@ -10,3 +10,7 @@ public/app.js.map
 
 # runtime data (X OAuth tokens, etc.)
 .data/
+
+# Claude-local dev config (contains personal ngrok domain, launch configs).
+# Each dev should generate their own.
+.claude/
